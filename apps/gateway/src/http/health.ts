@@ -71,7 +71,9 @@ export function buildHealthPayload(runtimeEnv: GatewayRuntimeEnv): HealthPayload
 }
 
 export function startHealthServer(options: HealthServerOptions): void {
-  const host = options.host ?? "127.0.0.1";
+  // Bind all interfaces by default so a container's reverse proxy can reach it.
+  // HOST overrides; local dev can still hit 127.0.0.1 since 0.0.0.0 accepts it.
+  const host = process.env.HOST ?? options.host ?? "0.0.0.0";
   const port = options.port ?? 8787;
   const server = createServer((request, response) => {
     void handleRequest(request, response, options).catch((error: unknown) => {
