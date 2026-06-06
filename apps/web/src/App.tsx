@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSpacetimeDB } from "spacetimedb/react";
 import { useRoomState } from "./adapters/roomAdapter";
 import { AppShell } from "./components/AppShell";
 import { HostMic } from "./components/HostMic";
@@ -17,7 +18,31 @@ function readTheme(): Theme {
   return "light";
 }
 
+// Gate the table-consuming app on a live connection. The SpacetimeDB React SDK's
+// useTable runs a different number of hooks until a table's subscription is
+// registered; mounting RoomApp only once the connection is active guarantees every
+// table is known on its first render, so the hook order is stable.
 export default function App() {
+  const connection = useSpacetimeDB();
+  if (!connection.isActive) {
+    return <ConnectingScreen error={connection.connectionError?.message} />;
+  }
+  return <RoomApp />;
+}
+
+function ConnectingScreen({ error }: { error?: string }) {
+  return (
+    <div className="connecting-screen">
+      <div className="connecting-card">
+        <span className="connecting-dot" aria-hidden="true" />
+        <b>Signal Room</b>
+        <span>{error ? `Connection error: ${error}` : "Connecting to the live room…"}</span>
+      </div>
+    </div>
+  );
+}
+
+function RoomApp() {
   const room = useRoomState();
   const [layout, setLayout] = useState<WorkspaceLayout>(() => readLayout());
   const [theme, setTheme] = useState<Theme>(() => readTheme());

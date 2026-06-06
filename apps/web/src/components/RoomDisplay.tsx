@@ -1,6 +1,7 @@
 import { ArrowLeft, ArrowRight, Check, ChevronRight, Send, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { SignalRoomSnapshot } from "../adapters/roomAdapter";
+import { GATEWAY_URL } from "../config";
 import type { AgentWorker, MapNode, PresencePin, WorkspaceLayout } from "../types/signalRoom";
 import { Avatar, Chip, ChipRow } from "./Primitives";
 import { LiveSignals } from "./LiveSignals";
@@ -25,18 +26,50 @@ function CanvasLayout({ room, onToast }: { room: SignalRoomSnapshot; onToast: (m
   const { state, focusedNode, focusNodeId, actions } = room;
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [railView, setRailView] = useState<"signals" | "node">("signals");
+  const [fleetRunning, setFleetRunning] = useState(false);
   const insetRight = inspectorOpen ? 440 : 0;
 
-  const researchingNodeIds = useMemo(
-    () =>
-      new Set(
-        state.workers
-          .filter((worker) => worker.active && worker.currentNodeId)
-          .map((worker) => worker.currentNodeId as string)
-      ),
-    [state.workers]
-  );
+  const researchingNodeIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const worker of state.workers) {
+      if (worker.active && worker.currentNodeId) ids.add(worker.currentNodeId);
+    }
+    for (const node of state.mapNodes) {
+      if (node.agent?.state === "working") ids.add(node.id);
+    }
+    return ids;
+  }, [state.mapNodes, state.workers]);
   const activeWorkers = state.workers.filter((worker) => worker.active);
+
+  const rootNode = state.mapNodes.find((node) => node.isRoot) ?? state.mapNodes[0];
+  const rootAnswer =
+    rootNode?.agent && rootNode.agent.kind !== "none"
+      ? {
+          question: rootNode.title,
+          answer: rootNode.agent.insight,
+          state: rootNode.agent.state,
+          confidence: rootNode.agent.confidence,
+        }
+      : undefined;
+
+  async function runFleet() {
+    if (fleetRunning) return;
+    setFleetRunning(true);
+    onToast("Agent fleet started");
+    try {
+      const response = await fetch(`${GATEWAY_URL}/fleet`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomCode: state.roomCode }),
+      });
+      if (!response.ok) throw new Error(`fleet ${response.status}`);
+      onToast("Agent fleet finished");
+    } catch {
+      onToast("Could not reach the gateway for the fleet");
+    } finally {
+      setFleetRunning(false);
+    }
+  }
 
   function focusNode(nodeId: string) {
     actions.setFocusNode(nodeId);
@@ -90,6 +123,9 @@ function CanvasLayout({ room, onToast }: { room: SignalRoomSnapshot; onToast: (m
             <LiveSignals
               signals={state.signals}
               activeAgents={activeWorkers.length}
+              rootAnswer={rootAnswer}
+              fleetRunning={fleetRunning}
+              onRunFleet={runFleet}
               onOpenNode={focusNode}
               onClose={() => setInspectorOpen(false)}
               onHide={() => setInspectorOpen(false)}

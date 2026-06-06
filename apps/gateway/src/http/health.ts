@@ -28,6 +28,7 @@ export interface HealthServerOptions {
   runtimeEnv: GatewayRuntimeEnv;
   replayTranscript?: (request: ReplayTranscriptRequest) => Promise<unknown>;
   workRoom?: (request: WorkRoomRequest) => Promise<unknown>;
+  fleet?: (request: FleetRequest) => Promise<unknown>;
 }
 
 export interface ReplayTranscriptRequest {
@@ -43,6 +44,11 @@ export interface WorkRoomRequest {
   database?: string;
   maxTasks?: number;
   workerCount?: number;
+}
+
+export interface FleetRequest {
+  roomCode: string;
+  database?: string;
 }
 
 export function buildHealthPayload(runtimeEnv: GatewayRuntimeEnv): HealthPayload {
@@ -172,6 +178,29 @@ async function handleRequest(
     return;
   }
 
+  if (request.method === "POST" && path === "/fleet") {
+    if (!options.fleet) {
+      writeJson(response, 503, {
+        ok: false,
+        error: "fleet_unavailable",
+      });
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(request);
+      const result = await options.fleet(parseFleetRequest(body));
+      writeJson(response, 200, { ok: true, result });
+    } catch (error: unknown) {
+      writeJson(response, 400, {
+        ok: false,
+        error: "bad_request",
+        message: error instanceof Error ? error.message : "Invalid fleet request",
+      });
+    }
+    return;
+  }
+
   writeJson(response, 404, {
     ok: false,
     error: "not_found",
@@ -240,6 +269,21 @@ function parseWorkRoomRequest(body: unknown): WorkRoomRequest {
     database,
     maxTasks,
     workerCount,
+  };
+}
+
+function parseFleetRequest(body: unknown): FleetRequest {
+  if (!body || typeof body !== "object") {
+    throw new Error("Body must be a JSON object");
+  }
+
+  const record = body as Record<string, unknown>;
+  const roomCode = parseString(record.roomCode, "roomCode");
+  const database = parseOptionalString(record.database, "database");
+
+  return {
+    roomCode,
+    database,
   };
 }
 

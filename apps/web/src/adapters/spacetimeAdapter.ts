@@ -9,6 +9,7 @@ import type {
   Finding as DbFinding,
   MapEdge as DbMapEdge,
   MapNode as DbMapNode,
+  NodeAgent as DbNodeAgent,
   Participant as DbParticipant,
   QuestionCandidate as DbQuestionCandidate,
   Room as DbRoom,
@@ -23,6 +24,7 @@ import type {
   CursorPin,
   MapEdge,
   MapNode,
+  NodeAgentView,
   PresencePin,
   QueueItem,
   RoomEvent,
@@ -169,10 +171,21 @@ function impactForUrgency(urgency: string): Pick<MapNode, "impact" | "impactTone
   return { impact: "open", impactTone: "flat", hasAlert: false };
 }
 
-function mapDbNode(row: DbMapNode): MapNode {
+function mapNodeAgent(row: DbNodeAgent): NodeAgentView {
+  return {
+    kind: row.agentKind,
+    state: row.agentState,
+    insight: row.insight,
+    sources: parseSourceChips(row.linksJson),
+    confidence: row.confidence,
+  };
+}
+
+function mapDbNode(row: DbMapNode, agent: DbNodeAgent | undefined): MapNode {
   const impact = impactForUrgency(row.urgency);
   const kind = sourceKind(row.source);
   const isRoot = row.nodeType === "root" || row.title.toLowerCase().includes("estimate");
+  const agentView = agent ? mapNodeAgent(agent) : undefined;
 
   return {
     id: nodeUiId(row.nodeId),
@@ -188,6 +201,7 @@ function mapDbNode(row: DbMapNode): MapNode {
     y: row.y,
     isRoot,
     hasAlert: impact.hasAlert,
+    agent: agentView,
     focus: {
       type: row.nodeType.replace(/_/g, " "),
       typeTone: impact.hasAlert ? "red" : kind === "human" ? "green" : "blue",
@@ -475,6 +489,7 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
   const [events, eventsReady] = useTable(tables.roomEvent);
   const [cursorRows, cursorsReady] = useTable(tables.cursor);
   const [workerRows, workersReady] = useTable(tables.agentWorker);
+  const [nodeAgentRows, nodeAgentsReady] = useTable(tables.nodeAgent);
 
   const selfHex = connectionState.identity?.toHexString() ?? "";
 
@@ -540,6 +555,7 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
         events: [] as DbRoomEvent[],
         cursors: [] as DbCursor[],
         workers: [] as DbAgentWorker[],
+        nodeAgents: [] as DbNodeAgent[],
       };
     }
 
@@ -556,6 +572,7 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
       events: (events as readonly DbRoomEvent[]).filter((row) => row.roomId === roomId),
       cursors: (cursorRows as readonly DbCursor[]).filter((row) => row.roomId === roomId),
       workers: (workerRows as readonly DbAgentWorker[]).filter((row) => row.roomId === roomId),
+      nodeAgents: (nodeAgentRows as readonly DbNodeAgent[]).filter((row) => row.roomId === roomId),
     };
   }, [
     cursorRows,
@@ -563,6 +580,7 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
     events,
     findings,
     focusRows,
+    nodeAgentRows,
     nodes,
     notes,
     participants,
@@ -577,6 +595,10 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
     return new Map(roomRows.nodes.map((node) => [rowId(node.nodeId), node]));
   }, [roomRows.nodes]);
 
+  const nodeAgentById = useMemo(() => {
+    return new Map(roomRows.nodeAgents.map((agent) => [rowId(agent.nodeId), agent]));
+  }, [roomRows.nodeAgents]);
+
   const liveReady =
     roomsReady &&
     nodesReady &&
@@ -590,7 +612,8 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
     focusReady &&
     eventsReady &&
     cursorsReady &&
-    workersReady;
+    workersReady &&
+    nodeAgentsReady;
 
   const status: SpacetimeAdapterStatus = useMemo(
     () => ({
@@ -647,7 +670,7 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
     roomDescription: roomRow?.description,
     roomId,
     focusedNodeId: focusedNodeId === undefined ? undefined : nodeUiId(focusedNodeId),
-    mapNodes: roomRows.nodes.map(mapDbNode),
+    mapNodes: roomRows.nodes.map((node) => mapDbNode(node, nodeAgentById.get(rowId(node.nodeId)))),
     mapEdges: roomRows.edges
       .map((edge) => mapDbEdge(edge, nodeById))
       .filter((edge): edge is MapEdge => Boolean(edge)),

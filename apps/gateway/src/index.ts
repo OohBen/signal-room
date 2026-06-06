@@ -11,6 +11,7 @@ import { replayTranscript } from "./spacetime/replayTranscript.js";
 import { writeResearchResultToSpacetime } from "./spacetime/writeback.js";
 import { workOneQueuedTask, workQueuedTasks } from "./tasks/taskWorker.js";
 import { runRoomSwarm } from "./tasks/swarm.js";
+import { runRoomFleet } from "./tasks/fleet.js";
 import { ResearchTaskRunner } from "./tasks/researchTaskRunner.js";
 
 type Command =
@@ -21,6 +22,7 @@ type Command =
   | "replay-transcript"
   | "work-once"
   | "work-batch"
+  | "fleet"
   | "help";
 
 interface CliOptions {
@@ -75,6 +77,14 @@ async function main(): Promise<void> {
           workerCount: request.workerCount,
         });
       },
+      fleet: async (request) => {
+        const runner = new ResearchTaskRunner(createExaResearchClient());
+        return runRoomFleet({
+          database: request.database ?? options.database,
+          roomCode: request.roomCode,
+          runner,
+        });
+      },
     });
     return;
   }
@@ -118,6 +128,20 @@ async function main(): Promise<void> {
       runner,
     });
     console.log(JSON.stringify({ ok: true, worker: output }, null, 2));
+    return;
+  }
+
+  if (options.command === "fleet") {
+    if (!options.roomCode) {
+      throw new Error("fleet requires --room-code <code>");
+    }
+    const runner = new ResearchTaskRunner(createExaResearchClient());
+    const output = await runRoomFleet({
+      database: options.database,
+      roomCode: options.roomCode,
+      runner,
+    });
+    console.log(JSON.stringify({ ok: true, fleet: output }, null, 2));
     return;
   }
 
@@ -280,6 +304,7 @@ function normalizeCommand(command: string | undefined): Command {
     command === "replay-transcript" ||
     command === "work-once" ||
     command === "work-batch" ||
+    command === "fleet" ||
     command === "help"
   ) {
     return command;
@@ -361,6 +386,7 @@ Commands:
   replay-transcript  Replay a transcript into a live room, deriving map nodes and agent tasks.
   work-once          Claim one queued SpacetimeDB agent task, run research, and write back.
   work-batch         Claim up to --max-tasks queued tasks, filtered by --room-code when provided.
+  fleet              Run the hierarchical agent fleet over a room's mind map: leaf research, branch and root synthesis.
 
 Options:
   --query <query>    Research query for smoke/research.

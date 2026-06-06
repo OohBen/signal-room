@@ -290,7 +290,18 @@ function MapNodeButton({
   y: number;
   onFocusNode: (nodeId: string) => void;
 }) {
-  const status = researching ? { label: "Agent on it", tone: "checking" as const } : statusForNode(node);
+  const agent = node.agent;
+  const noAgent = agent?.kind === "none";
+  const working = researching || agent?.state === "working";
+  const ready = agent?.state === "ready" && Boolean(agent.insight) && !noAgent;
+  const status = working
+    ? { label: "Thinking", tone: "checking" as const }
+    : noAgent
+      ? { label: "No agent", tone: "listening" as const }
+      : ready
+        ? { label: "Insight ready", tone: "ready" as const }
+        : statusForNode(node);
+  const body = ready && agent ? agent.insight : node.summary;
 
   return (
     <button
@@ -300,7 +311,8 @@ function MapNodeButton({
         node.isRoot ? "root" : "",
         focused ? "selected" : "",
         dimmed ? "dim" : "",
-        researching ? "researching" : "",
+        working ? "researching" : "",
+        noAgent ? "no-agent" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -309,16 +321,16 @@ function MapNodeButton({
       onClick={() => onFocusNode(node.id)}
     >
       {node.hasAlert ? <span className="alert-pin" aria-hidden="true" /> : null}
-      {researching ? <span className="research-ring" aria-hidden="true" /> : null}
+      {working ? <span className="research-ring" aria-hidden="true" /> : null}
       <div className="node-top">
         <Avatar initial={node.ownerInitial} kind={node.ownerKind} />
         <span className="node-type">{node.isRoot ? "root question" : node.focus.type}</span>
         <span className={`node-status ${status.tone}`}>{status.label}</span>
       </div>
       <h3>{node.title}</h3>
-      <p className="sum">{node.summary}</p>
+      <p className="sum">{body}</p>
       <div className="node-foot">
-        <span className="owner-tag">{node.source}</span>
+        <span className="owner-tag">{ready && agent ? `Agent · ${agent.confidence}` : node.source}</span>
         <span className={`impact ${node.impactTone}`}>{node.impact}</span>
       </div>
     </button>

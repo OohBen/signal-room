@@ -116,6 +116,18 @@ export const MapNode = __t.object("MapNode", {
 });
 export type MapNode = __Infer<typeof MapNode>;
 
+export const NodeAgent = __t.object("NodeAgent", {
+  nodeId: __t.u64(),
+  roomId: __t.u64(),
+  agentKind: __t.string(),
+  agentState: __t.string(),
+  insight: __t.string(),
+  linksJson: __t.string(),
+  confidence: __t.string(),
+  updatedAt: __t.timestamp(),
+});
+export type NodeAgent = __Infer<typeof NodeAgent>;
+
 export const Participant = __t.object("Participant", {
   participantId: __t.u64(),
   roomId: __t.u64(),

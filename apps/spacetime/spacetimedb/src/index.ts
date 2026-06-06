@@ -257,6 +257,23 @@ const agentWorker = table(
   }
 );
 
+const nodeAgent = table(
+  {
+    name: 'node_agent',
+    public: true,
+  },
+  {
+    nodeId: t.u64().primaryKey(),
+    roomId: t.u64().index('btree'),
+    agentKind: t.string(),
+    agentState: t.string(),
+    insight: t.string(),
+    linksJson: t.string(),
+    confidence: t.string(),
+    updatedAt: t.timestamp(),
+  }
+);
+
 const spacetimedb = schema({
   room,
   participant,
@@ -272,6 +289,7 @@ const spacetimedb = schema({
   roomEvent,
   cursor,
   agentWorker,
+  nodeAgent,
 });
 
 export default spacetimedb;
@@ -1043,6 +1061,40 @@ export const upsertAgentWorker = spacetimedb.reducer(
       completedCount,
       updatedAt: ctx.timestamp,
     });
+  }
+);
+
+export const setNodeAgent = spacetimedb.reducer(
+  {
+    nodeId: t.u64(),
+    roomId: t.u64(),
+    agentKind: t.string(),
+    agentState: t.string(),
+    insight: t.string(),
+    linksJson: t.string(),
+    confidence: t.string(),
+  },
+  (ctx, { nodeId, roomId, agentKind, agentState, insight, linksJson, confidence }) => {
+    requireRoom(ctx, roomId);
+    assertNodeInRoom(ctx, roomId, nodeId);
+
+    const row = {
+      nodeId,
+      roomId,
+      agentKind: cleanText(agentKind, 'leaf'),
+      agentState: cleanText(agentState, 'idle'),
+      insight: cleanText(insight, ''),
+      linksJson: cleanText(linksJson, '[]'),
+      confidence: cleanText(confidence, 'medium'),
+      updatedAt: ctx.timestamp,
+    };
+
+    const existing = ctx.db.nodeAgent.nodeId.find(nodeId);
+    if (existing === null) {
+      ctx.db.nodeAgent.insert(row);
+    } else {
+      ctx.db.nodeAgent.nodeId.update(row);
+    }
   }
 );
 

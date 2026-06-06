@@ -46,6 +46,7 @@ import CreateMapNodeReducer from "./create_map_node_reducer";
 import CreateQuestionCandidateReducer from "./create_question_candidate_reducer";
 import CreateRoomReducer from "./create_room_reducer";
 import JoinRoomReducer from "./join_room_reducer";
+import SetNodeAgentReducer from "./set_node_agent_reducer";
 import SetRoomFocusReducer from "./set_room_focus_reducer";
 import UpdateCursorReducer from "./update_cursor_reducer";
 import UpdateMapNodeReducer from "./update_map_node_reducer";
@@ -62,6 +63,7 @@ import CursorRow from "./cursor_table";
 import FindingRow from "./finding_table";
 import MapEdgeRow from "./map_edge_table";
 import MapNodeRow from "./map_node_table";
+import NodeAgentRow from "./node_agent_table";
 import ParticipantRow from "./participant_table";
 import QuestionCandidateRow from "./question_candidate_table";
 import RoomRow from "./room_table";
@@ -206,6 +208,20 @@ const tablesSchema = __schema({
       { name: 'map_node_node_id_key', constraint: 'unique', columns: ['nodeId'] },
     ],
   }, MapNodeRow),
+  nodeAgent: __table({
+    name: 'node_agent',
+    indexes: [
+      { accessor: 'nodeId', name: 'node_agent_node_id_idx_btree', algorithm: 'btree', columns: [
+        'nodeId',
+      ] },
+      { accessor: 'roomId', name: 'node_agent_room_id_idx_btree', algorithm: 'btree', columns: [
+        'roomId',
+      ] },
+    ],
+    constraints: [
+      { name: 'node_agent_node_id_key', constraint: 'unique', columns: ['nodeId'] },
+    ],
+  }, NodeAgentRow),
   participant: __table({
     name: 'participant',
     indexes: [
@@ -344,6 +360,7 @@ const reducersSchema = __reducers(
   __reducerSchema("create_question_candidate", CreateQuestionCandidateReducer),
   __reducerSchema("create_room", CreateRoomReducer),
   __reducerSchema("join_room", JoinRoomReducer),
+  __reducerSchema("set_node_agent", SetNodeAgentReducer),
   __reducerSchema("set_room_focus", SetRoomFocusReducer),
   __reducerSchema("update_cursor", UpdateCursorReducer),
   __reducerSchema("update_map_node", UpdateMapNodeReducer),

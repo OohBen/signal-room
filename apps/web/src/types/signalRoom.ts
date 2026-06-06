@@ -26,6 +26,14 @@ export interface FocusDetail {
   connected: string;
 }
 
+export interface NodeAgentView {
+  kind: "root" | "branch" | "leaf" | "none" | string;
+  state: "idle" | "working" | "ready" | string;
+  insight: string;
+  sources: Chip[];
+  confidence: string;
+}
+
 export interface MapNode {
   id: string;
   title: string;
@@ -40,6 +48,7 @@ export interface MapNode {
   y?: number;
   isRoot?: boolean;
   hasAlert?: boolean;
+  agent?: NodeAgentView;
   focus: FocusDetail;
 }
 

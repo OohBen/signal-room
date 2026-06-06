@@ -1,9 +1,19 @@
-import { ArrowUpRight, ChevronRight, Radio, Sparkles, X } from "lucide-react";
+import { ArrowUpRight, ChevronRight, Network, Radio, Sparkles, X } from "lucide-react";
 import type { RoomSignal } from "../types/signalRoom";
+
+export interface RootAnswer {
+  question: string;
+  answer: string;
+  state: string;
+  confidence: string;
+}
 
 interface LiveSignalsProps {
   signals: RoomSignal[];
   activeAgents: number;
+  rootAnswer?: RootAnswer;
+  fleetRunning: boolean;
+  onRunFleet: () => void;
   onOpenNode: (nodeId: string) => void;
   onClose: () => void;
   onHide: () => void;
@@ -15,16 +25,28 @@ const KIND_LABEL: Record<RoomSignal["kind"], string> = {
   finding: "Finding",
 };
 
-export function LiveSignals({ signals, activeAgents, onOpenNode, onClose, onHide }: LiveSignalsProps) {
+export function LiveSignals({
+  signals,
+  activeAgents,
+  rootAnswer,
+  fleetRunning,
+  onRunFleet,
+  onOpenNode,
+  onClose,
+  onHide,
+}: LiveSignalsProps) {
+  const fleetThinking = fleetRunning || rootAnswer?.state === "working";
+
   return (
     <aside className="panel right live-signals">
       <div className="panel-head">
         <Radio size={15} strokeWidth={2.1} />
         <span className="t">Live signals</span>
         <span className="sp" />
-        <span className="badge">
-          {activeAgents ? `${activeAgents} agent${activeAgents === 1 ? "" : "s"} working` : `${signals.length} cards`}
-        </span>
+        <button className="run-fleet" type="button" onClick={onRunFleet} disabled={fleetThinking}>
+          <Network size={13} strokeWidth={2.2} />
+          {fleetThinking ? "Fleet thinking…" : "Run agent fleet"}
+        </button>
         <button className="icon-btn mini" type="button" onClick={onClose} title="Close">
           <X size={15} strokeWidth={2.1} />
         </button>
@@ -34,8 +56,25 @@ export function LiveSignals({ signals, activeAgents, onOpenNode, onClose, onHide
       </div>
 
       <div className="panel-body">
+        {rootAnswer ? (
+          <article className={`working-answer${fleetThinking ? " thinking" : ""}`}>
+            <div className="wa-top">
+              <Network size={13} strokeWidth={2.2} />
+              <span>{fleetThinking ? "Fleet synthesizing answer" : "Working answer"}</span>
+              <span className="sp" />
+              <span className="wa-confidence">{rootAnswer.confidence}</span>
+            </div>
+            <h3 className="wa-question">{rootAnswer.question}</h3>
+            <p className="wa-answer">
+              {rootAnswer.answer || "Agents are researching the factors and synthesizing an answer…"}
+            </p>
+          </article>
+        ) : null}
+
         <p className="signals-lead">
-          What the room should glance at — agent answers and important findings, newest and most urgent first.
+          {activeAgents
+            ? `${activeAgents} agent${activeAgents === 1 ? "" : "s"} working across the map.`
+            : "What the room should glance at — agent answers and important findings, newest and most urgent first."}
         </p>
 
         {signals.length === 0 ? (
