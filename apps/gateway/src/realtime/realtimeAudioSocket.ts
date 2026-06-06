@@ -170,6 +170,7 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
   let upstreamOpen = false;
   let closeAfterNextTranscript = false;
   let closeTimer: NodeJS.Timeout | undefined;
+  let operatorTimer: NodeJS.Timeout | undefined;
   let uncommittedAudioMs = 0;
   let transcriptionPending = false;
   let operatorRunning = false;
@@ -480,6 +481,7 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
       toolChoice,
       words: input.latestTranscript.split(/\s+/).length,
     });
+    resetOperatorTimer();
 
     realtime.send({
       type: "response.create",
@@ -552,6 +554,7 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
   }
 
   function completeOperatorRun(): void {
+    clearOperatorTimer();
     operatorRunning = false;
     operatorResponseDone = false;
     operatorMutationCount = 0;
@@ -586,6 +589,28 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
     }
   }
 
+  function resetOperatorTimer(): void {
+    clearOperatorTimer();
+    operatorTimer = setTimeout(() => {
+      if (!operatorRunning) return;
+      console.warn(
+        JSON.stringify({
+          event: "realtime_operator_timeout",
+          roomCode: roomContext.roomCode,
+          transcript: activeOperatorTranscript.slice(0, 220),
+        })
+      );
+      completeOperatorRun();
+    }, 12000);
+  }
+
+  function clearOperatorTimer(): void {
+    if (operatorTimer) {
+      clearTimeout(operatorTimer);
+      operatorTimer = undefined;
+    }
+  }
+
   function isExpectedStopCommitError(message: string): boolean {
     return closeAfterNextTranscript && (message.includes("buffer too small") || message.includes("commit_empty"));
   }
@@ -595,6 +620,7 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
       clearTimeout(closeTimer);
       closeTimer = undefined;
     }
+    clearOperatorTimer();
     closeAfterNextTranscript = false;
     uncommittedAudioMs = 0;
     transcriptionPending = false;
