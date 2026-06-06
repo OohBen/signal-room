@@ -74,8 +74,10 @@ const MAX_ZOOM = 2.4;
 const SNAP_GRID = 24;
 const NODE_CARD_W = 258;
 const ROOT_CARD_W = 360;
-const NODE_CARD_H = 132;
-const ROOT_CARD_H = 160;
+const NODE_CARD_H = 172;
+const ROOT_CARD_H = 210;
+const COLLISION_GAP_X = 72;
+const COLLISION_GAP_Y = 56;
 
 export function RoomMap({
   nodes,
@@ -538,13 +540,18 @@ function createCleanLayoutPatches(nodes: MapNode[], edges: MapEdge[], currentLay
   const offsetY =
     rootAnchor && proposedRoot ? rootAnchor.y - proposedRoot.y : currentBounds.centerY - proposedBounds.centerY;
 
-  return proposedLayout
+  const anchoredLayout = proposedLayout.map(({ node, x, y }) => {
+    const nextX = clampNodeX(node, snapToGrid(x + offsetX));
+    const nextY = clampNodeY(node, snapToGrid(y + offsetY));
+    return { node, x: nextX, y: nextY };
+  });
+  const separatedLayout = separateOverlappingNodes(anchoredLayout, root.id);
+
+  return separatedLayout
     .map(({ node, x, y }) => {
-      const nextX = clamp(snapToGrid(x + offsetX), 180, STAGE_W - 180);
-      const nextY = clamp(snapToGrid(y + offsetY), 120, STAGE_H - 120);
       const current = currentById.get(node.id);
-      if (current && Math.abs(current.x - nextX) < 1 && Math.abs(current.y - nextY) < 1) return null;
-      return { id: node.id, x: nextX, y: nextY };
+      if (current && Math.abs(current.x - x) < 1 && Math.abs(current.y - y) < 1) return null;
+      return { id: node.id, x, y };
     })
     .filter((patch): patch is LayoutPositionPatch => patch !== null);
 }
@@ -666,7 +673,7 @@ function compareClustersWithOrder(orderHints?: ReadonlyMap<string, Pick<Position
     clusterRank(left.nodes[0]) - clusterRank(right.nodes[0]) ||
     (left.parentId ? 0 : 1) - (right.parentId ? 0 : 1) ||
     compareClusterPositionHints(left, right, orderHints) ||
-    left.key.localeCompare(right.key)
+    left.key.localeCompare(right.key);
 }
 
 function compareClusterPositionHints(
@@ -855,8 +862,117 @@ function layoutBounds(layout: PositionedNode[]):
   };
 }
 
+function separateOverlappingNodes(layout: PositionedNode[], lockedNodeId: string): PositionedNode[] {
+  const separated = layout.map((positioned) => ({ ...positioned }));
+  const maxPasses = separated.length * separated.length + 8;
+
+  for (let pass = 0; pass < maxPasses; pass += 1) {
+    let moved = false;
+
+    for (let leftIndex = 0; leftIndex < separated.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < separated.length; rightIndex += 1) {
+        const left = separated[leftIndex];
+        const right = separated[rightIndex];
+        const overlap = collisionOverlap(left, right);
+        if (!overlap) continue;
+
+        moved = true;
+        const axis = overlap.x <= overlap.y ? "x" : "y";
+        const leftLocked = left.node.id === lockedNodeId;
+        const rightLocked = right.node.id === lockedNodeId;
+        const direction = separationDirection(left, right, axis);
+
+        if (leftLocked && !rightLocked) {
+          separated[rightIndex] = movePositioned(right, axis, direction * snapDelta(overlap[axis] + SNAP_GRID));
+          continue;
+        }
+
+        if (rightLocked && !leftLocked) {
+          separated[leftIndex] = movePositioned(left, axis, -direction * snapDelta(overlap[axis] + SNAP_GRID));
+          continue;
+        }
+
+        const halfDelta = snapDelta(overlap[axis] / 2 + SNAP_GRID);
+        separated[leftIndex] = movePositioned(left, axis, -direction * halfDelta);
+        separated[rightIndex] = movePositioned(right, axis, direction * halfDelta);
+      }
+    }
+
+    if (!moved) break;
+  }
+
+  return separated.map((positioned) => ({
+    ...positioned,
+    x: clampNodeX(positioned.node, snapToGrid(positioned.x)),
+    y: clampNodeY(positioned.node, snapToGrid(positioned.y)),
+  }));
+}
+
+function collisionOverlap(
+  left: PositionedNode,
+  right: PositionedNode
+): { x: number; y: number } | undefined {
+  const leftBox = collisionBox(left);
+  const rightBox = collisionBox(right);
+  const x = Math.min(leftBox.right, rightBox.right) - Math.max(leftBox.left, rightBox.left);
+  const y = Math.min(leftBox.bottom, rightBox.bottom) - Math.max(leftBox.top, rightBox.top);
+  if (x <= 0 || y <= 0) return undefined;
+  return { x, y };
+}
+
+function collisionBox(positioned: PositionedNode): {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+} {
+  const width = collisionWidth(positioned.node);
+  const height = collisionHeight(positioned.node);
+  return {
+    left: positioned.x - width / 2,
+    right: positioned.x + width / 2,
+    top: positioned.y - height / 2,
+    bottom: positioned.y + height / 2,
+  };
+}
+
+function collisionWidth(node: MapNode): number {
+  return (node.isRoot ? ROOT_CARD_W : NODE_CARD_W) + COLLISION_GAP_X;
+}
+
+function collisionHeight(node: MapNode): number {
+  return (node.isRoot ? ROOT_CARD_H : NODE_CARD_H) + COLLISION_GAP_Y;
+}
+
+function separationDirection(left: PositionedNode, right: PositionedNode, axis: "x" | "y"): 1 | -1 {
+  const delta = axis === "x" ? right.x - left.x : right.y - left.y;
+  if (Math.abs(delta) >= 1) return delta > 0 ? 1 : -1;
+  return textKey(right.node).localeCompare(textKey(left.node)) >= 0 ? 1 : -1;
+}
+
+function movePositioned(positioned: PositionedNode, axis: "x" | "y", delta: number): PositionedNode {
+  if (axis === "x") {
+    return { ...positioned, x: clampNodeX(positioned.node, positioned.x + delta) };
+  }
+  return { ...positioned, y: clampNodeY(positioned.node, positioned.y + delta) };
+}
+
+function snapDelta(value: number): number {
+  return Math.max(SNAP_GRID, Math.ceil(value / SNAP_GRID) * SNAP_GRID);
+}
+
 function snapToGrid(value: number): number {
   return Math.round(value / SNAP_GRID) * SNAP_GRID;
+}
+
+function clampNodeX(node: MapNode, x: number): number {
+  const inset = collisionWidth(node) / 2;
+  return clamp(x, inset, STAGE_W - inset);
+}
+
+function clampNodeY(node: MapNode, y: number): number {
+  const inset = collisionHeight(node) / 2;
+  return clamp(y, inset, STAGE_H - inset);
 }
 
 function clamp(value: number, min: number, max: number): number {
