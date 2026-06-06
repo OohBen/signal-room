@@ -11,6 +11,12 @@ interface PersistedRoomState {
   scratchpad: ScratchpadEntry[];
 }
 
+export interface LayoutPositionPatch {
+  id: string;
+  x: number;
+  y: number;
+}
+
 export interface SignalRoomActions {
   setFocusNode: (nodeId: string) => void;
   clearFocusNode: () => void;
@@ -21,6 +27,7 @@ export interface SignalRoomActions {
   redirectAgent: (text: string) => Promise<boolean>;
   updateMapNode: (nodeId: string, patch: { title?: string; summary?: string }) => Promise<boolean>;
   moveMapNode: (nodeId: string, x: number, y: number) => Promise<boolean>;
+  cleanMapLayout: (patches: LayoutPositionPatch[]) => Promise<boolean>;
   moveCursor: (x: number, y: number) => void;
 }
 
@@ -372,6 +379,28 @@ export function useRoomState(): SignalRoomSnapshot {
     [live]
   );
 
+  const cleanMapLayout = useCallback(
+    async (patches: LayoutPositionPatch[]) => {
+      const validPatches = patches.filter(
+        (patch) => patch.id && Number.isFinite(patch.x) && Number.isFinite(patch.y)
+      );
+      if (validPatches.length === 0) return true;
+
+      try {
+        const results = await Promise.all(
+          validPatches.map((patch) =>
+            live.updateMapNode(patch.id, { x: Math.round(patch.x), y: Math.round(patch.y) })
+          )
+        );
+        return results.every(Boolean);
+      } catch (error: unknown) {
+        console.error("Unable to clean map layout", error);
+        return false;
+      }
+    },
+    [live]
+  );
+
   const moveCursor = useCallback(
     (x: number, y: number) => {
       live.moveCursor(x, y);
@@ -390,12 +419,14 @@ export function useRoomState(): SignalRoomSnapshot {
       redirectAgent,
       updateMapNode,
       moveMapNode,
+      cleanMapLayout,
       moveCursor,
     }),
     [
       addPrivatePrompt,
       addSharedNote,
       addTranscriptChunk,
+      cleanMapLayout,
       clearFocusNode,
       moveMapNode,
       moveCursor,

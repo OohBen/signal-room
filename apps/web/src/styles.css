@@ -330,6 +330,12 @@ main {
   color: var(--ink);
 }
 
+.icon-btn:disabled,
+.zbtn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
 .icon-btn.mini {
   width: 28px;
   height: 28px;

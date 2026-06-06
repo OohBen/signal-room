@@ -1,4 +1,4 @@
-import { Minus, Plus, Scan } from "lucide-react";
+import { Minus, Plus, Scan, Sparkles } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -24,6 +24,7 @@ interface RoomMapProps {
   onClearFocus?: () => void;
   onCursorMove?: (x: number, y: number) => void;
   onMoveNode?: (nodeId: string, x: number, y: number) => Promise<boolean>;
+  onCleanLayout?: (patches: LayoutPositionPatch[]) => Promise<boolean>;
 }
 
 interface PositionedNode {
@@ -34,6 +35,12 @@ interface PositionedNode {
 
 interface MapLayout {
   nodes: PositionedNode[];
+}
+
+interface LayoutPositionPatch {
+  id: string;
+  x: number;
+  y: number;
 }
 
 interface DragState {
@@ -64,6 +71,11 @@ const CX = STAGE_W / 2;
 const CY = STAGE_H / 2;
 const MIN_ZOOM = 0.38;
 const MAX_ZOOM = 2.4;
+const SNAP_GRID = 24;
+const NODE_CARD_W = 258;
+const ROOT_CARD_W = 360;
+const NODE_CARD_H = 132;
+const ROOT_CARD_H = 160;
 
 export function RoomMap({
   nodes,
@@ -78,6 +90,7 @@ export function RoomMap({
   onClearFocus,
   onCursorMove,
   onMoveNode,
+  onCleanLayout,
 }: RoomMapProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -264,6 +277,27 @@ export function RoomMap({
     });
   }
 
+  function handleCleanLayout() {
+    if (!onCleanLayout || nodes.length < 2) return;
+
+    const patches = createCleanLayoutPatches(nodes, edges, layout);
+    if (patches.length === 0) return;
+
+    setDraftNodePositions((current) => ({
+      ...current,
+      ...Object.fromEntries(patches.map((patch) => [patch.id, { x: patch.x, y: patch.y }])),
+    }));
+
+    void onCleanLayout(patches).then((ok) => {
+      if (ok) return;
+      setDraftNodePositions((current) => {
+        const next = { ...current };
+        for (const patch of patches) delete next[patch.id];
+        return next;
+      });
+    });
+  }
+
   // Ctrl/meta/alt + wheel = zoom. Attach a NON-passive native listener so
   // preventDefault works without React's passive-listener console warning.
   const zoomAtPointRef = useRef(zoomAtPoint);
@@ -378,6 +412,15 @@ export function RoomMap({
         <button className="zbtn fit" type="button" onClick={fit} title="Recenter">
           <Scan size={15} strokeWidth={2.1} />
         </button>
+        <button
+          className="zbtn fit"
+          type="button"
+          onClick={handleCleanLayout}
+          title="Clean layout"
+          disabled={!onCleanLayout || nodes.length < 2}
+        >
+          <Sparkles size={15} strokeWidth={2.1} />
+        </button>
       </div>
     </div>
   );
@@ -478,7 +521,41 @@ function layoutMapNodes(nodes: MapNode[], edges: MapEdge[], draftNodePositions: 
   };
 }
 
-function layoutAutomaticNodes(nodes: MapNode[], edges: MapEdge[], root: MapNode): PositionedNode[] {
+function createCleanLayoutPatches(nodes: MapNode[], edges: MapEdge[], currentLayout: PositionedNode[]): LayoutPositionPatch[] {
+  if (nodes.length < 2) return [];
+
+  const root = nodes.find((node) => node.isRoot) ?? nodes[0];
+  const currentById = new Map(currentLayout.map((positioned) => [positioned.node.id, positioned]));
+  const proposedLayout = layoutAutomaticNodes(nodes, edges, root, currentById);
+  const currentBounds = layoutBounds(currentLayout);
+  const proposedBounds = layoutBounds(proposedLayout);
+  if (!currentBounds || !proposedBounds) return [];
+
+  const rootAnchor = currentById.get(root.id);
+  const proposedRoot = proposedLayout.find((positioned) => positioned.node.id === root.id);
+  const offsetX =
+    rootAnchor && proposedRoot ? rootAnchor.x - proposedRoot.x : currentBounds.centerX - proposedBounds.centerX;
+  const offsetY =
+    rootAnchor && proposedRoot ? rootAnchor.y - proposedRoot.y : currentBounds.centerY - proposedBounds.centerY;
+
+  return proposedLayout
+    .map(({ node, x, y }) => {
+      const nextX = clamp(snapToGrid(x + offsetX), 180, STAGE_W - 180);
+      const nextY = clamp(snapToGrid(y + offsetY), 120, STAGE_H - 120);
+      const current = currentById.get(node.id);
+      if (current && Math.abs(current.x - nextX) < 1 && Math.abs(current.y - nextY) < 1) return null;
+      return { id: node.id, x: nextX, y: nextY };
+    })
+    .filter((patch): patch is LayoutPositionPatch => patch !== null);
+}
+
+function layoutAutomaticNodes(
+  nodes: MapNode[],
+  edges: MapEdge[],
+  root: MapNode,
+  orderHints?: ReadonlyMap<string, Pick<PositionedNode, "x" | "y">>
+): PositionedNode[] {
+  const compareBranches = compareBranchesWithOrder(orderHints);
   const branches = nodes.filter((node) => node.id !== root.id).sort(compareBranches);
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const childIdsByParent = new Map<string, string[]>();
@@ -512,8 +589,8 @@ function layoutAutomaticNodes(nodes: MapNode[], edges: MapEdge[], root: MapNode)
   }
 
   const remaining = branches.filter((node) => !used.has(node.id));
-  clusters.push(...clusterBranches(remaining));
-  clusters.sort(compareClusters);
+  clusters.push(...clusterBranches(remaining, compareBranches, orderHints));
+  clusters.sort(compareClustersWithOrder(orderHints));
 
   return [
     { node: root, x: CX, y: CY },
@@ -526,8 +603,23 @@ function layoutAutomaticNodes(nodes: MapNode[], edges: MapEdge[], root: MapNode)
   ];
 }
 
-function compareBranches(left: MapNode, right: MapNode): number {
-  return clusterRank(left) - clusterRank(right) || branchRank(left) - branchRank(right) || textKey(left).localeCompare(textKey(right));
+function compareBranchesWithOrder(orderHints?: ReadonlyMap<string, Pick<PositionedNode, "x" | "y">>) {
+  return (left: MapNode, right: MapNode): number =>
+    clusterRank(left) - clusterRank(right) ||
+    branchRank(left) - branchRank(right) ||
+    comparePositionHints(left, right, orderHints) ||
+    textKey(left).localeCompare(textKey(right));
+}
+
+function comparePositionHints(
+  left: MapNode,
+  right: MapNode,
+  orderHints?: ReadonlyMap<string, Pick<PositionedNode, "x" | "y">>
+): number {
+  const leftHint = orderHints?.get(left.id);
+  const rightHint = orderHints?.get(right.id);
+  if (!leftHint || !rightHint) return 0;
+  return leftHint.y - rightHint.y || leftHint.x - rightHint.x;
 }
 
 function branchRank(node: MapNode): number {
@@ -550,7 +642,11 @@ interface NodeCluster {
   parentId?: string;
 }
 
-function clusterBranches(nodes: MapNode[]): NodeCluster[] {
+function clusterBranches(
+  nodes: MapNode[],
+  compareBranches: (left: MapNode, right: MapNode) => number,
+  orderHints?: ReadonlyMap<string, Pick<PositionedNode, "x" | "y">>
+): NodeCluster[] {
   const byCluster = new Map<string, MapNode[]>();
   for (const node of nodes) {
     const key = clusterKey(node);
@@ -562,15 +658,44 @@ function clusterBranches(nodes: MapNode[]): NodeCluster[] {
       key,
       nodes: clusterNodes.sort(compareBranches),
     }))
-    .sort((left, right) => clusterRank(left.nodes[0]) - clusterRank(right.nodes[0]) || left.key.localeCompare(right.key));
+    .sort(compareClustersWithOrder(orderHints));
 }
 
-function compareClusters(left: NodeCluster, right: NodeCluster): number {
-  return (
+function compareClustersWithOrder(orderHints?: ReadonlyMap<string, Pick<PositionedNode, "x" | "y">>) {
+  return (left: NodeCluster, right: NodeCluster): number =>
     clusterRank(left.nodes[0]) - clusterRank(right.nodes[0]) ||
     (left.parentId ? 0 : 1) - (right.parentId ? 0 : 1) ||
+    compareClusterPositionHints(left, right, orderHints) ||
     left.key.localeCompare(right.key)
-  );
+}
+
+function compareClusterPositionHints(
+  left: NodeCluster,
+  right: NodeCluster,
+  orderHints?: ReadonlyMap<string, Pick<PositionedNode, "x" | "y">>
+): number {
+  const leftCenter = clusterHintCenter(left, orderHints);
+  const rightCenter = clusterHintCenter(right, orderHints);
+  if (!leftCenter || !rightCenter) return 0;
+  return leftCenter.y - rightCenter.y || leftCenter.x - rightCenter.x;
+}
+
+function clusterHintCenter(
+  cluster: NodeCluster,
+  orderHints?: ReadonlyMap<string, Pick<PositionedNode, "x" | "y">>
+): { x: number; y: number } | undefined {
+  let count = 0;
+  let x = 0;
+  let y = 0;
+  for (const node of cluster.nodes) {
+    const hint = orderHints?.get(node.id);
+    if (!hint) continue;
+    count += 1;
+    x += hint.x;
+    y += hint.y;
+  }
+  if (count === 0) return undefined;
+  return { x: x / count, y: y / count };
 }
 
 function clusterRank(node: MapNode): number {
@@ -692,6 +817,46 @@ function hasExplicitPosition(node: MapNode): node is MapNode & { x: number; y: n
 
 function samePosition(left: unknown, right: number): boolean {
   return typeof left === "number" && Number.isFinite(left) && Math.abs(left - right) < 0.5;
+}
+
+function layoutBounds(layout: PositionedNode[]):
+  | {
+      centerX: number;
+      centerY: number;
+      left: number;
+      right: number;
+      top: number;
+      bottom: number;
+    }
+  | undefined {
+  if (layout.length === 0) return undefined;
+
+  let left = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  let top = Number.POSITIVE_INFINITY;
+  let bottom = Number.NEGATIVE_INFINITY;
+
+  for (const { node, x, y } of layout) {
+    const width = node.isRoot ? ROOT_CARD_W : NODE_CARD_W;
+    const height = node.isRoot ? ROOT_CARD_H : NODE_CARD_H;
+    left = Math.min(left, x - width / 2);
+    right = Math.max(right, x + width / 2);
+    top = Math.min(top, y - height / 2);
+    bottom = Math.max(bottom, y + height / 2);
+  }
+
+  return {
+    centerX: (left + right) / 2,
+    centerY: (top + bottom) / 2,
+    left,
+    right,
+    top,
+    bottom,
+  };
+}
+
+function snapToGrid(value: number): number {
+  return Math.round(value / SNAP_GRID) * SNAP_GRID;
 }
 
 function clamp(value: number, min: number, max: number): number {
