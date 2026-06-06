@@ -79,9 +79,9 @@ export function shouldRunRealtimeOperator(transcript: string): boolean {
   }
 
   if (hasMapworthySignal(compact)) return true;
-  if (words.length >= 7) return true;
-  return /\b(?:main topic|talk about|trying to|over|under|sanctions?|russian|ukraine|israel|hormuz|nigeria|niger delta|data|agent)\b/.test(
-    lower
+  return (
+    words.length >= 6 &&
+    /\b(?:main topic|talk about|trying to|over|under|sanctions?|russian|ukraine|israel|hormuz|nigeria|niger delta|data|agent|because|depends?|causes?|factors?|genetic|environment|school)\b/.test(lower)
   );
 }
 

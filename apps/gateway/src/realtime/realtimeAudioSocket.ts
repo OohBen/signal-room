@@ -151,6 +151,10 @@ const REALTIME_ROOM_TOOLS: RealtimeFunctionTool[] = [
   },
 ];
 
+const ACTION_REALTIME_ROOM_TOOLS: RealtimeFunctionTool[] = REALTIME_ROOM_TOOLS.filter(
+  (tool) => tool.name !== "ignore_turn"
+);
+
 interface RealtimeClientMessage {
   type: "session_start" | "audio_pcm" | "session_stop";
   roomCode?: string;
@@ -485,7 +489,7 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
         parallel_tool_calls: true,
         tool_choice: toolChoice,
         max_output_tokens: 1000,
-        tools: REALTIME_ROOM_TOOLS,
+        tools: ACTION_REALTIME_ROOM_TOOLS,
         instructions: buildOperatorInstructions(),
         input: [
           {
@@ -664,10 +668,11 @@ function buildOperatorInstructions(): string {
     "You are Signal Room's silent realtime operator.",
     "You are not a chatbot. Do not answer the meeting. Do not interrupt. Do not produce user-facing prose.",
     "Your only job is to make small tool calls that keep a shared research map useful while people keep talking.",
+    "This operator is called only after a deterministic prefilter selected a map-worthy turn. Make one useful state update; do not no-op.",
     "Judge the LATEST TRANSCRIPT TURN first. Use recent context only to resolve pronouns like 'it' or 'that'.",
     "The map has one center. If Current map center is empty, generic, or missing, and the latest turn names the main question, call add_map_signal once with kind='topic'. The title must be the actual question or target, not a vague discussion label.",
-    "If the latest turn says a main topic is coming but does not actually name the target yet, use ignore_turn and wait.",
-    "If there is no usable center yet and the latest turn only lists factors, do not invent a center from those factors. Use ignore_turn unless one factor is clearly the actual main question.",
+    "If the latest turn says a main topic is coming but does not actually name the target yet, add a passive question only if it gives humans a useful next prompt.",
+    "If there is no usable center yet and the latest turn only lists factors, do not invent a center from those factors. Add a passive question only if one factor is clearly worth preserving.",
     "If a real center already exists, do not create another card that merely restates it. Add new cards only for new factors, claims, questions, shifts, or agent requests.",
     "If the latest turn corrects a prior mishearing or says 'not X, Y', use correct_map_node on the existing card. Example: if the center says 'spot at Scrabble' and the room says 'not spot, bot', correct the center/title to 'Ben's bot at Scrabble'.",
     "When the latest turn enumerates factors, e.g. 'it is going to be about A, B, C', create separate kind='factor' map signals for each material factor. Connect each to the exact Current map center title.",
@@ -676,7 +681,7 @@ function buildOperatorInstructions(): string {
     "Only use summon_quick_agent without add_map_signal when the room asks for a quick check that does not deserve a card.",
     "Only set connectedTo to an exact title listed in Current map. If unsure, omit it.",
     "Use add_passive_question for quiet questions that humans may choose to discuss. AI never asks these aloud.",
-    "Use ignore_turn for filler, acknowledgements, corrections, jokes, repetition, or turns too small to preserve.",
+    "Filler, acknowledgements, jokes, repetition, or turns too small to preserve should not reach this operator. If one does, add the least intrusive passive question only when it is genuinely useful.",
     "Do not create a card titled 'Brief utterance', 'Conversation summary', 'Current discussion', 'NVIDIA discussion', or similar low-information generic labels.",
     "Bad center titles: 'Gas discussion', 'NVIDIA interest', 'Current discussion'. Good center titles: 'Gas prices this month vs $100', 'NVIDIA Q4 2026 outlook'.",
     "Bad factor handling: one card named 'Geopolitical events'. Good factor handling: separate cards like 'Russian sanctions', 'Ukraine war', 'Strait of Hormuz risk', each connected to the center.",
