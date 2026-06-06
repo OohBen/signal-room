@@ -2,6 +2,7 @@ import { Bot, BookOpen, CheckSquare, Database, LayoutPanelLeft, Moon, Plus, Sett
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import type { WorkspaceLayout } from "../types/signalRoom";
+import { RecentRoomsMenu } from "./RecentRoomsMenu";
 
 interface AppShellProps {
   layout: WorkspaceLayout;
@@ -87,6 +88,8 @@ export function AppShell({
           <span className="avatar human sm">{userInitial}</span>
           <span className="you-label">{userLabel}</span>
         </button>
+
+        <RecentRoomsMenu currentCode={roomCode} />
 
         <button className="icon-btn" type="button" onClick={onNewRoom} title="New live room">
           <Plus size={16} strokeWidth={2.1} />

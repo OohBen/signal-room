@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSpacetimeDB } from "spacetimedb/react";
+import { recordRecentRoom } from "./adapters/recentRooms";
 import { useRoomState } from "./adapters/roomAdapter";
 import { AppShell } from "./components/AppShell";
 import { HostMic } from "./components/HostMic";
@@ -64,6 +65,12 @@ function RoomApp() {
   useEffect(() => {
     window.localStorage.setItem("sr.layout", layout);
   }, [layout]);
+
+  // Remember rooms the user actually connected to, for the Recent rooms menu.
+  const roomConnected = room.adapterStatus.mode === "spacetime" && Boolean(room.adapterStatus.roomId);
+  useEffect(() => {
+    if (roomConnected) recordRecentRoom(room.state.roomCode, room.state.question);
+  }, [roomConnected, room.state.roomCode, room.state.question]);
 
   useEffect(() => {
     if (!toast) return;
