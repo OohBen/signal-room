@@ -1,0 +1,1803 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Signal Room Mock</title>
+  <style>
+    :root {
+      --bg: #f6f5f1;
+      --ink: #171717;
+      --muted: #6b6962;
+      --line: #d8d5cb;
+      --panel: #ffffff;
+      --panel-2: #fdfbf6;
+      --blue: #255f85;
+      --green: #24785f;
+      --red: #b64242;
+      --amber: #a66a19;
+      --violet: #6651a6;
+      --shadow: 0 18px 44px rgba(42, 37, 26, 0.10);
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    body {
+      padding: 18px;
+    }
+
+    button, input, textarea, select {
+      font: inherit;
+      color: inherit;
+    }
+
+    button {
+      border: 0;
+      cursor: pointer;
+    }
+
+    .app {
+      min-height: calc(100vh - 36px);
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 14px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 240px;
+    }
+
+    .mark {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      color: white;
+      background:
+        linear-gradient(135deg, #255f85 0%, #24785f 48%, #a66a19 100%);
+      box-shadow: 0 8px 22px rgba(37, 95, 133, 0.22);
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1;
+      font-weight: 760;
+    }
+
+    .brand span {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 560;
+    }
+
+    .segmented {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.72);
+      border-radius: 8px;
+    }
+
+    .segmented button {
+      min-height: 34px;
+      padding: 0 13px;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 680;
+    }
+
+    .segmented button.active {
+      background: var(--ink);
+      color: #fff;
+      box-shadow: 0 5px 13px rgba(23, 23, 23, 0.14);
+    }
+
+    .meeting-state {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 250px;
+      justify-content: flex-end;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 640;
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--red);
+      box-shadow: 0 0 0 5px rgba(182, 66, 66, 0.12);
+      animation: pulse 1.7s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(0.72); opacity: 0.72; }
+    }
+
+    .screen {
+      display: none;
+      min-height: 0;
+    }
+
+    .screen.active {
+      display: block;
+    }
+
+    .room-grid {
+      min-height: calc(100vh - 104px);
+      display: grid;
+      grid-template-columns: minmax(620px, 1fr) 376px;
+      gap: 14px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.83);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    .panel-head {
+      min-height: 52px;
+      padding: 13px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(253, 251, 246, 0.86);
+    }
+
+    .panel-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.1;
+      font-weight: 780;
+      text-transform: uppercase;
+      color: #2d2c28;
+    }
+
+    .panel-sub {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .icon {
+      width: 17px;
+      height: 17px;
+      display: inline-block;
+      flex: 0 0 auto;
+    }
+
+    .transcript {
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      max-height: calc(100vh - 157px);
+      overflow: auto;
+    }
+
+    .transcript-grid {
+      min-height: calc(100vh - 104px);
+      display: grid;
+      grid-template-columns: minmax(520px, 1fr) 360px;
+      gap: 14px;
+    }
+
+    .utterance {
+      padding: 10px;
+      border: 1px solid #e5e1d7;
+      background: var(--panel);
+      border-radius: 8px;
+    }
+
+    .utterance strong {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+      line-height: 1;
+      font-weight: 760;
+    }
+
+    .utterance strong span {
+      color: var(--muted);
+      font-weight: 650;
+    }
+
+    .utterance p {
+      margin: 8px 0 0;
+      color: #34332f;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 9px;
+    }
+
+    .chip {
+      min-height: 22px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 7px;
+      border: 1px solid #ddd8cd;
+      border-radius: 999px;
+      color: #514e47;
+      background: #f9f7f1;
+      font-size: 11px;
+      font-weight: 690;
+      white-space: nowrap;
+    }
+
+    .chip.blue { border-color: rgba(37,95,133,.24); color: var(--blue); background: rgba(37,95,133,.08); }
+    .chip.green { border-color: rgba(36,120,95,.25); color: var(--green); background: rgba(36,120,95,.08); }
+    .chip.red { border-color: rgba(182,66,66,.24); color: var(--red); background: rgba(182,66,66,.08); }
+    .chip.amber { border-color: rgba(166,106,25,.25); color: var(--amber); background: rgba(166,106,25,.09); }
+    .chip.violet { border-color: rgba(102,81,166,.24); color: var(--violet); background: rgba(102,81,166,.08); }
+
+    .canvas-panel {
+      position: relative;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: 0;
+      background:
+        linear-gradient(rgba(216,213,203,.42) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(216,213,203,.42) 1px, transparent 1px),
+        #fbfaf6;
+      background-size: 42px 42px;
+    }
+
+    .question-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 13px 16px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,0.86);
+    }
+
+    .question h2 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    .question p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .probability {
+      min-width: 168px;
+      padding: 10px 12px;
+      border: 1px solid #dcd8cd;
+      background: #fff;
+      border-radius: 8px;
+      text-align: right;
+    }
+
+    .probability .value {
+      font-size: 30px;
+      line-height: 1;
+      font-weight: 820;
+      color: var(--blue);
+    }
+
+    .probability .label {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 720;
+      text-transform: uppercase;
+    }
+
+    .map {
+      position: relative;
+      min-height: 520px;
+      overflow: hidden;
+    }
+
+    .edges {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .edges path {
+      stroke: rgba(72, 68, 58, 0.28);
+      stroke-width: 2;
+      fill: none;
+    }
+
+    .node {
+      position: absolute;
+      width: 178px;
+      min-height: 104px;
+      padding: 11px;
+      border: 1px solid #d6d1c4;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.94);
+      box-shadow: 0 12px 28px rgba(45, 40, 28, 0.11);
+      transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+    }
+
+    .node:hover {
+      transform: translateY(-2px);
+      border-color: rgba(37,95,133,.45);
+      box-shadow: 0 18px 34px rgba(37,95,133,0.15);
+    }
+
+    .node.selected {
+      border-color: rgba(182,66,66,.52);
+      box-shadow: 0 18px 36px rgba(182,66,66,0.16);
+    }
+
+    .node.root {
+      left: calc(50% - 110px);
+      top: 192px;
+      width: 220px;
+      min-height: 134px;
+      border-color: rgba(37,95,133,.45);
+      background: #fff;
+    }
+
+    .node h3 {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.15;
+      font-weight: 800;
+    }
+
+    .node p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.3;
+      font-weight: 570;
+    }
+
+    .node-footer {
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .impact {
+      font-size: 12px;
+      font-weight: 800;
+      color: var(--green);
+    }
+
+    .impact.down { color: var(--red); }
+    .impact.flat { color: var(--amber); }
+
+    .owner {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 720;
+      color: var(--muted);
+    }
+
+    .avatar {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: #e6e1d5;
+      color: #403c33;
+      font-size: 10px;
+      font-weight: 820;
+    }
+
+    .avatar.agent { background: rgba(37,95,133,.13); color: var(--blue); }
+    .avatar.human { background: rgba(36,120,95,.14); color: var(--green); }
+    .avatar.warn { background: rgba(182,66,66,.13); color: var(--red); }
+
+    .n-compute { left: 7%; top: 52px; }
+    .n-oil { left: 8%; top: 355px; }
+    .n-geopol { right: 8%; top: 66px; }
+    .n-capex { right: 7%; top: 350px; }
+    .n-memory { left: calc(50% - 88px); top: 26px; }
+    .n-question { left: calc(50% - 88px); bottom: 34px; }
+
+    .alert-pin {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 3px solid white;
+      background: var(--red);
+      box-shadow: 0 7px 15px rgba(182,66,66,.25);
+    }
+
+    .presence {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 7px;
+      border: 1px solid rgba(37,95,133,.22);
+      border-radius: 8px;
+      background: rgba(255,255,255,.92);
+      color: var(--blue);
+      font-size: 11px;
+      font-weight: 760;
+      box-shadow: 0 8px 18px rgba(37,95,133,.12);
+    }
+
+    .presence svg { color: var(--blue); }
+    .p1 { left: 22%; top: 232px; }
+    .p2 { right: 24%; top: 235px; color: var(--green); border-color: rgba(36,120,95,.24); }
+    .p2 svg { color: var(--green); }
+
+    .map-foot {
+      min-height: 66px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border-top: 1px solid var(--line);
+      background: rgba(255,255,255,0.86);
+    }
+
+    .ticker {
+      display: flex;
+      gap: 8px;
+      overflow: hidden;
+    }
+
+    .event {
+      min-width: 220px;
+      padding: 8px 10px;
+      border: 1px solid #e2ded3;
+      border-radius: 8px;
+      background: #fff;
+      color: #37342e;
+      font-size: 12px;
+      line-height: 1.25;
+      font-weight: 630;
+    }
+
+    .primary-btn,
+    .ghost-btn,
+    .danger-btn {
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 0 12px;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 760;
+      white-space: nowrap;
+    }
+
+    .primary-btn {
+      background: var(--ink);
+      color: white;
+    }
+
+    .ghost-btn {
+      border: 1px solid var(--line);
+      background: white;
+      color: #33312b;
+    }
+
+    .danger-btn {
+      background: rgba(182,66,66,.10);
+      color: var(--red);
+      border: 1px solid rgba(182,66,66,.24);
+    }
+
+    .side-stack {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 0;
+    }
+
+    .side-content {
+      padding: 12px;
+      display: grid;
+      align-content: start;
+      gap: 12px;
+      max-height: calc(100vh - 157px);
+      overflow: auto;
+    }
+
+    .quiet-compose {
+      padding: 12px;
+      border: 1px solid #e3ded4;
+      border-radius: 8px;
+      background: #fff;
+      display: grid;
+      gap: 9px;
+    }
+
+    .quiet-compose textarea {
+      min-height: 78px;
+      resize: vertical;
+      border: 1px solid #d9d5cc;
+      border-radius: 8px;
+      padding: 9px;
+      outline: none;
+      background: #fbfaf6;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .quiet-compose textarea:focus {
+      border-color: rgba(37,95,133,.55);
+      box-shadow: 0 0 0 4px rgba(37,95,133,.10);
+    }
+
+    .focus-card {
+      padding: 12px;
+      border: 1px solid rgba(37,95,133,.22);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 10px 22px rgba(37,95,133,.08);
+      display: grid;
+      gap: 10px;
+    }
+
+    .focus-card h3 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.12;
+    }
+
+    .focus-card p {
+      margin: 0;
+      color: #383631;
+      font-size: 13px;
+      line-height: 1.42;
+    }
+
+    .focus-meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .focus-metric {
+      padding: 9px;
+      border: 1px solid #e2ded3;
+      border-radius: 8px;
+      background: #fbfaf6;
+    }
+
+    .focus-metric strong {
+      display: block;
+      font-size: 14px;
+      line-height: 1;
+      color: var(--blue);
+    }
+
+    .focus-metric span {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 730;
+      text-transform: uppercase;
+    }
+
+    .suggestion-list {
+      display: grid;
+      gap: 9px;
+    }
+
+    .agent-row,
+    .queue-row,
+    .source-row,
+    .note-row {
+      padding: 10px;
+      border: 1px solid #e3ded4;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .agent-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 9px;
+      align-items: center;
+    }
+
+    .agent-row strong,
+    .queue-row strong,
+    .source-row strong,
+    .note-row strong {
+      display: block;
+      font-size: 12px;
+      line-height: 1.15;
+      font-weight: 800;
+    }
+
+    .agent-row span,
+    .queue-row span,
+    .source-row span,
+    .note-row span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.25;
+      font-weight: 570;
+    }
+
+    .status {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    .status.busy { background: var(--amber); animation: pulse 1.8s infinite; }
+    .status.alert { background: var(--red); animation: pulse 1.4s infinite; }
+
+    .queue-row {
+      display: grid;
+      gap: 9px;
+    }
+
+    .queue-row .chip-row {
+      display: flex;
+      margin-top: 0;
+    }
+
+    .queue-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .mini-actions {
+      display: flex;
+      gap: 7px;
+      flex-wrap: wrap;
+    }
+
+    .mini-actions button {
+      min-height: 28px;
+      padding: 0 9px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fbfaf6;
+      color: #3a3832;
+      font-size: 12px;
+      font-weight: 730;
+    }
+
+    .laptop-grid {
+      min-height: calc(100vh - 104px);
+      display: grid;
+      grid-template-columns: 360px minmax(520px, 1fr) 330px;
+      gap: 14px;
+    }
+
+    .compose {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .compose textarea {
+      width: 100%;
+      min-height: 112px;
+      resize: vertical;
+      border: 1px solid #d9d5cc;
+      border-radius: 8px;
+      padding: 11px;
+      background: #fff;
+      font-size: 14px;
+      line-height: 1.35;
+      outline: none;
+    }
+
+    .compose textarea:focus {
+      border-color: rgba(37,95,133,.55);
+      box-shadow: 0 0 0 4px rgba(37,95,133,.10);
+    }
+
+    .field-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+    }
+
+    .select-like {
+      min-height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: #34322d;
+      font-size: 13px;
+      font-weight: 710;
+    }
+
+    .personal-map {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      align-content: start;
+      max-height: calc(100vh - 157px);
+      overflow: auto;
+    }
+
+    .wide-card {
+      grid-column: 1 / -1;
+      padding: 14px;
+      border: 1px solid #ded9ce;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .wide-card h3 {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.15;
+    }
+
+    .wide-card p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .small-card {
+      min-height: 124px;
+      padding: 12px;
+      border: 1px solid #ded9ce;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .small-card h4 {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.2;
+    }
+
+    .small-card p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .card-bottom {
+      margin-top: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .confidence {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .bar {
+      height: 7px;
+      border-radius: 999px;
+      background: #ebe7dd;
+      overflow: hidden;
+    }
+
+    .bar span {
+      display: block;
+      height: 100%;
+      background: linear-gradient(90deg, var(--blue), var(--green));
+    }
+
+    .feed {
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      max-height: calc(100vh - 157px);
+      overflow: auto;
+    }
+
+    .thread-grid {
+      min-height: calc(100vh - 104px);
+      display: grid;
+      grid-template-columns: minmax(560px, 1fr) 360px;
+      gap: 14px;
+    }
+
+    .agent-workspace {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      min-height: 0;
+    }
+
+    .thread-hero {
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: start;
+      gap: 16px;
+    }
+
+    .thread-hero h2 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.05;
+    }
+
+    .thread-hero p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      max-width: 780px;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .score-stack {
+      min-width: 162px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .score {
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfaf6;
+    }
+
+    .score strong {
+      display: block;
+      font-size: 18px;
+      line-height: 1;
+      color: var(--red);
+    }
+
+    .score span {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 740;
+      text-transform: uppercase;
+    }
+
+    .timeline {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      background: rgba(253,251,246,.82);
+    }
+
+    .step {
+      min-height: 88px;
+      padding: 10px;
+      border: 1px solid #ddd8cd;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .step b {
+      display: block;
+      font-size: 12px;
+      line-height: 1.15;
+    }
+
+    .step span {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.3;
+    }
+
+    .thread-body {
+      min-height: 0;
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 1.05fr .95fr;
+      gap: 14px;
+      overflow: auto;
+    }
+
+    .answer {
+      padding: 14px;
+      border: 1px solid #ded9ce;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .answer h3 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.1;
+    }
+
+    .answer p,
+    .answer li {
+      color: #383631;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .answer ul {
+      margin: 10px 0 0;
+      padding-left: 18px;
+    }
+
+    .intervene {
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .intervene textarea {
+      min-height: 86px;
+      resize: vertical;
+      border: 1px solid #d9d5cc;
+      border-radius: 8px;
+      padding: 10px;
+      outline: none;
+      background: #fff;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 20px;
+      transform: translateX(-50%) translateY(14px);
+      min-width: 280px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: #171717;
+      color: white;
+      font-size: 13px;
+      font-weight: 700;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s ease, transform .2s ease;
+      box-shadow: 0 16px 34px rgba(23, 23, 23, .22);
+      z-index: 40;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    @media (max-width: 1100px) {
+      body { padding: 12px; }
+      .topbar { align-items: flex-start; flex-wrap: wrap; }
+      .meeting-state { justify-content: flex-start; min-width: 0; }
+      .room-grid,
+      .laptop-grid,
+      .transcript-grid,
+      .thread-grid {
+        grid-template-columns: 1fr;
+      }
+      .map { min-height: 720px; }
+      .node.root { left: calc(50% - 110px); top: 292px; }
+      .n-compute { left: 5%; top: 70px; }
+      .n-geopol { right: 5%; top: 84px; }
+      .n-oil { left: 5%; top: 512px; }
+      .n-capex { right: 5%; top: 508px; }
+      .n-memory { left: calc(50% - 88px); top: 182px; }
+      .n-question { left: calc(50% - 88px); bottom: 62px; }
+      .timeline,
+      .thread-body,
+      .personal-map {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 680px) {
+      .segmented {
+        width: 100%;
+        overflow-x: auto;
+      }
+      .segmented button {
+        flex: 1 0 auto;
+      }
+      .question-bar,
+      .thread-hero,
+      .map-foot {
+        grid-template-columns: 1fr;
+        display: grid;
+      }
+      .probability,
+      .score-stack {
+        min-width: 0;
+        width: 100%;
+        text-align: left;
+      }
+      .node {
+        width: 150px;
+      }
+      .node.root {
+        width: 190px;
+        left: calc(50% - 95px);
+      }
+      .field-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark" aria-hidden="true">
+          <svg class="icon" viewBox="0 0 24 24" fill="none">
+            <path d="M7 7h10v10H7z" stroke="currentColor" stroke-width="2"/>
+            <path d="M12 3v4M12 17v4M3 12h4M17 12h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div>
+          <h1>Signal Room</h1>
+          <span>Live human-agent research mock</span>
+        </div>
+      </div>
+
+      <nav class="segmented" aria-label="Mock screens">
+        <button class="active" data-screen="room">Room Display</button>
+        <button data-screen="laptop">Participant Laptop</button>
+        <button data-screen="transcript">Transcript</button>
+        <button data-screen="thread">Agent Thread</button>
+      </nav>
+
+      <div class="meeting-state">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span>Meeting live · shared map · private notes enabled</span>
+      </div>
+    </header>
+
+    <main>
+      <section id="room" class="screen active">
+        <div class="room-grid">
+          <section class="panel canvas-panel">
+            <div class="question-bar">
+              <div class="question">
+                <h2>Where could NVIDIA trade by year end?</h2>
+                <p>Main room display · shared map, live questions, and important findings</p>
+              </div>
+              <div class="probability">
+                <div class="value">Open</div>
+                <div class="label">working synthesis</div>
+              </div>
+            </div>
+
+            <div class="map" aria-label="Live map mock">
+              <svg class="edges" viewBox="0 0 1000 640" preserveAspectRatio="none" aria-hidden="true">
+                <path d="M500 280 C360 245 300 150 170 120" />
+                <path d="M500 300 C350 350 250 475 170 445" />
+                <path d="M500 275 C650 230 735 135 835 128" />
+                <path d="M500 315 C650 365 740 472 838 442" />
+                <path d="M500 250 C505 175 505 110 500 84" />
+                <path d="M500 350 C505 430 505 510 500 568" />
+              </svg>
+
+              <button class="node root" data-focus="root">
+                <h3>NVIDIA year-end estimate</h3>
+                <p>Synthesizer says demand strength still dominates, but oil/rates branch is now the biggest uncertainty.</p>
+                <div class="node-footer">
+                  <span class="impact">+7% since start</span>
+                  <span class="owner"><span class="avatar agent">S</span> Source: Synthesis AI</span>
+                </div>
+              </button>
+
+              <button class="node n-compute" data-focus="compute">
+                <h3>AI compute renters</h3>
+                <p>Quick agent is checking hyperscaler capex and enterprise demand signals.</p>
+                <div class="node-footer">
+                  <span class="impact">strong up</span>
+                  <span class="owner"><span class="avatar agent">Q</span> Source: Quick AI</span>
+                </div>
+              </button>
+
+              <button class="node n-geopol selected" data-focus="geopol">
+                <span class="alert-pin" aria-hidden="true"></span>
+                <h3>Geopolitics and oil</h3>
+                <p>Deep agent found possible rate-pressure link. Waiting for human review.</p>
+                <div class="node-footer">
+                  <span class="impact down">risk down</span>
+                  <span class="owner"><span class="avatar agent">D</span> Source: Deep AI</span>
+                </div>
+              </button>
+
+              <button class="node n-oil" data-focus="oil">
+                <h3>Nigeria oil disruption</h3>
+                <p>Victor added this quietly. Agent marked it as specific-research needed.</p>
+                <div class="node-footer">
+                  <span class="impact flat">unclear</span>
+                  <span class="owner"><span class="avatar human">V</span> Source: Victor</span>
+                </div>
+              </button>
+
+              <button class="node n-capex" data-focus="capex">
+                <h3>Capex cycle</h3>
+                <p>Michelle’s question converted into a research thread with 3 source requests.</p>
+                <div class="node-footer">
+                  <span class="impact">up</span>
+                  <span class="owner"><span class="avatar human">M</span> Source: Michelle</span>
+                </div>
+              </button>
+
+              <button class="node n-memory" data-focus="memory">
+                <h3>Old Cisco memo</h3>
+                <p>Memory search found a prior bubble-comparison note from last month.</p>
+                <div class="node-footer">
+                  <span class="impact flat">context</span>
+                  <span class="owner"><span class="avatar agent">M</span> Source: Memory AI</span>
+                </div>
+              </button>
+
+              <button class="node n-question" data-focus="question">
+                <h3>Unanswered question</h3>
+                <p>Is sovereign AI demand incremental, or already included in hyperscaler orders?</p>
+                <div class="node-footer">
+                  <span class="impact flat">ask room</span>
+                  <span class="owner"><span class="avatar agent">I</span> Source: Question AI</span>
+                </div>
+              </button>
+
+              <div class="presence p1">
+                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M5 3l14 8-6 2-2 6L5 3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                </svg>
+                Ben viewing oil
+              </div>
+              <div class="presence p2">
+                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M5 3l14 8-6 2-2 6L5 3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                </svg>
+                Michelle editing capex
+              </div>
+            </div>
+
+            <div class="map-foot">
+              <div class="ticker">
+                <div class="event">Mapper split “oil risk” into Iran, Nigeria, and inflation branches.</div>
+                <div class="event">Deep Agent finished geopolitics pass and flagged one possible interrupt.</div>
+                <div class="event">Ana attached “Cisco memo” to valuation-history node.</div>
+              </div>
+              <button class="primary-btn" data-focus-button="geopol">
+                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Focus alert
+              </button>
+            </div>
+          </section>
+
+          <aside class="panel side-stack">
+            <div class="panel-head">
+              <h2 class="panel-title">
+                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M21 15a4 4 0 0 1-4 4H7l-4 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                </svg>
+                Room Copilot
+              </h2>
+              <span class="panel-sub">TV rail</span>
+            </div>
+            <div class="side-content">
+              <article class="focus-card" id="focusCard">
+                <div class="chip-row">
+                  <span class="chip red" id="focusType">important finding</span>
+                  <span class="chip" id="focusAge">2 min ago</span>
+                </div>
+                <h3 id="focusTitle">Geopolitics and oil</h3>
+                <p id="focusText">The agent found a possible link from oil shock to inflation expectations, but says it only matters for NVIDIA if it changes valuation multiples.</p>
+                <div class="focus-meta">
+                  <div class="focus-metric">
+                    <strong id="focusImpact">-4.5%</strong>
+                    <span>possible impact</span>
+                  </div>
+                  <div class="focus-metric">
+                    <strong id="focusAction">Review</strong>
+                    <span>room action</span>
+                  </div>
+                </div>
+                <article class="source-row">
+                  <strong id="focusSource">Source: Deep Research AI</strong>
+                  <span id="focusConnected">Connected to: Geopolitics and oil</span>
+                </article>
+                <div class="mini-actions">
+                  <button data-open-thread>Open full read</button>
+                  <button data-toast="Tip: double-click a map node to open its full thread">How to open</button>
+                </div>
+              </article>
+
+              <article class="queue-row">
+                <div class="queue-meta">
+                  <strong>Question candidate</strong>
+                  <span class="chip amber">expires in 6 min</span>
+                </div>
+                <span>Should sovereign AI demand be its own branch, instead of being buried inside hyperscaler capex?</span>
+                <span class="chip-row">
+                  <span class="chip violet">Source: Synthesis AI</span>
+                  <span class="chip">Connected: AI compute renters</span>
+                </span>
+              </article>
+
+              <article class="queue-row">
+                <div class="queue-meta">
+                  <strong>Human note from Michelle</strong>
+                  <span class="chip green">shared quietly</span>
+                </div>
+                <span>Need actual capex numbers. Do not let this become a generic demand story.</span>
+                <span class="chip-row">
+                  <span class="chip green">Source: Michelle</span>
+                  <span class="chip">Connected: Capex cycle</span>
+                </span>
+              </article>
+
+              <article class="source-row">
+                <strong>Display behavior</strong>
+                <span>AI can surface candidates here, but it does not interrupt the room. Humans choose what to discuss. Low-signal items fall off automatically.</span>
+              </article>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="transcript" class="screen">
+        <div class="transcript-grid">
+          <section class="panel side-stack">
+            <div class="panel-head">
+              <h2 class="panel-title">
+                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M4 5h16M4 12h10M4 19h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                Transcript
+              </h2>
+              <span class="panel-sub">review, not TV</span>
+            </div>
+            <div class="transcript">
+              <article class="utterance">
+                <strong>Speaker 1 <span>12:04:18</span></strong>
+                <p>The real NVIDIA question might be who is actually renting AI compute and whether that demand is still accelerating.</p>
+                <div class="chip-row">
+                  <span class="chip blue">new branch</span>
+                  <span class="chip green">researchable</span>
+                </div>
+              </article>
+              <article class="utterance">
+                <strong>Speaker 2 <span>12:05:02</span></strong>
+                <p>Agent, check the biggest AI compute renters and whether their capex plans changed this quarter.</p>
+                <div class="chip-row">
+                  <span class="chip amber">quick task</span>
+                  <span class="chip">assigned</span>
+                </div>
+              </article>
+              <article class="utterance">
+                <strong>Speaker 3 <span>12:06:41</span></strong>
+                <p>If oil spikes from Iran or Nigeria issues, rates expectations matter more than people think.</p>
+                <div class="chip-row">
+                  <span class="chip red">possible alert</span>
+                  <span class="chip violet">cross-link</span>
+                </div>
+              </article>
+              <article class="utterance">
+                <strong>Speaker 4 <span>12:08:10</span></strong>
+                <p>Pull in the old memo where we compared this to Cisco. I do not want generic internet answers here.</p>
+                <div class="chip-row">
+                  <span class="chip green">private memory</span>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <aside class="panel side-stack">
+            <div class="panel-head">
+              <h2 class="panel-title">
+                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                Topic Chunks
+              </h2>
+              <span class="panel-sub">map input</span>
+            </div>
+            <div class="side-content">
+              <article class="queue-row">
+                <div class="queue-meta">
+                  <strong>12:04-12:05</strong>
+                  <span class="chip blue">new node</span>
+                </div>
+                <span>AI compute renters introduced as a demand-driver branch for NVIDIA.</span>
+              </article>
+              <article class="queue-row">
+                <div class="queue-meta">
+                  <strong>12:05-12:06</strong>
+                  <span class="chip amber">agent call</span>
+                </div>
+                <span>Room asked for a quick check on biggest renters and capex changes.</span>
+              </article>
+              <article class="queue-row">
+                <div class="queue-meta">
+                  <strong>12:06-12:08</strong>
+                  <span class="chip red">possible alert</span>
+                </div>
+                <span>Oil and geopolitics reframed as a valuation-multiple risk, not direct demand risk.</span>
+              </article>
+              <article class="queue-row">
+                <div class="queue-meta">
+                  <strong>12:08-12:09</strong>
+                  <span class="chip green">memory</span>
+                </div>
+                <span>Private Cisco memo requested as grounding context for bubble-comparison discussion.</span>
+              </article>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="laptop" class="screen">
+        <div class="laptop-grid">
+          <aside class="panel">
+            <div class="panel-head">
+              <h2 class="panel-title">
+                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M4 5h16v11H4zM8 20h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                Private AI
+              </h2>
+              <span class="panel-sub">Ben</span>
+            </div>
+            <div class="compose">
+              <textarea id="promptBox">Agent, consider whether Algeria matters in the Nigeria oil case, and only interrupt the room if it changes inflation or rates expectations.</textarea>
+              <div class="field-row">
+                <div class="select-like">Target: Geopolitics</div>
+                <div class="select-like">Visibility: private</div>
+              </div>
+              <button class="primary-btn" id="sendPrompt">
+                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M22 2L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                  <path d="M22 2l-7 20-4-9-9-4 20-7z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                </svg>
+                Ask privately
+              </button>
+              <button class="ghost-btn" data-toast="Private note added to the shared map as a quiet human contribution">
+                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                Add to shared map
+              </button>
+              <button class="ghost-btn" data-toast="Old NVIDIA memo attached to current branch">
+                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2"/>
+                  <path d="M14 2v6h6" stroke="currentColor" stroke-width="2"/>
+                </svg>
+                Attach context or research
+              </button>
+              <button class="danger-btn" data-open-thread>
+                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 9v4M12 17h.01M10.3 4.3L2.8 17.3A2 2 0 0 0 4.5 20h15a2 2 0 0 0 1.7-2.7L13.7 4.3a2 2 0 0 0-3.4 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Open red-dot finding
+              </button>
+            </div>
+          </aside>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2 class="panel-title">
+                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M4 18V6m0 12h16M4 6h16M8 6v12M16 6v12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                Personal Map View
+              </h2>
+              <span class="panel-sub">same shared room</span>
+            </div>
+            <div class="personal-map">
+              <article class="wide-card">
+                <h3>Working room summary</h3>
+                <p>The group is still bullish on NVIDIA demand, but the live map now has two open risks: whether capex growth is decelerating and whether oil/rates pressure should affect the valuation multiple.</p>
+                <div class="confidence">
+                  <div class="bar"><span style="width: 67%"></span></div>
+                  <strong>67% stable</strong>
+                </div>
+              </article>
+              <article class="small-card">
+                <h4>AI compute renters</h4>
+                <p>Quick research in progress. Three names found, waiting on capex detail.</p>
+                <div class="card-bottom">
+                  <span class="chip blue">research</span>
+                  <span class="owner"><span class="avatar agent">Q</span> Quick</span>
+                </div>
+              </article>
+              <article class="small-card">
+                <h4>Geopolitics and oil</h4>
+                <p>Deep agent flagged possible rates link. You added Algeria as missing context.</p>
+                <div class="card-bottom">
+                  <span class="chip red">urgent</span>
+                  <span class="owner"><span class="avatar human">B</span> You</span>
+                </div>
+              </article>
+              <article class="small-card">
+                <h4>Cisco analogy</h4>
+                <p>Memory retrieved last month’s memo. Agent says analogy is useful but incomplete.</p>
+                <div class="card-bottom">
+                  <span class="chip green">memory</span>
+                  <span class="owner"><span class="avatar agent">M</span> Memory</span>
+                </div>
+              </article>
+              <article class="small-card">
+                <h4>Question for room</h4>
+                <p>Should sovereign AI demand be modeled separately from hyperscaler demand?</p>
+                <div class="card-bottom">
+                  <span class="chip amber">ask</span>
+                  <span class="owner"><span class="avatar agent">I</span> Interview</span>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <aside class="panel">
+            <div class="panel-head">
+              <h2 class="panel-title">
+                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M21 15a4 4 0 0 1-4 4H7l-4 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                </svg>
+                Private Scratchpad
+              </h2>
+              <span class="panel-sub">only you</span>
+            </div>
+            <div class="feed" id="backchannel">
+              <article class="note-row">
+                <strong>Your private AI</strong>
+                <span>This is a safe place to test a thought before adding it to the room map.</span>
+              </article>
+              <article class="note-row">
+                <strong>You asked privately</strong>
+                <span>Does Algeria matter in the Nigeria oil case, or is that a distraction?</span>
+              </article>
+              <article class="note-row">
+                <strong>Private AI replied</strong>
+                <span>Probably not for crude directly. It may matter more for European gas and inflation context.</span>
+              </article>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="thread" class="screen">
+        <div class="thread-grid">
+          <section class="panel agent-workspace">
+            <div class="thread-hero">
+              <div>
+                <h2>Geopolitics and Oil Agent</h2>
+                <p>Opened from the red-dot alert. The agent was researching whether oil disruptions could pressure inflation expectations enough to affect NVIDIA’s valuation multiple.</p>
+              </div>
+              <div class="score-stack">
+                <div class="score">
+                  <strong>-4.5%</strong>
+                  <span>estimated impact</span>
+                </div>
+                <button class="ghost-btn" data-screen-button="room">Back to room</button>
+              </div>
+            </div>
+
+            <div class="timeline">
+              <article class="step">
+                <b>1. Heard in meeting</b>
+                <span>Victor linked oil spikes to rates expectations.</span>
+              </article>
+              <article class="step">
+                <b>2. Researched</b>
+                <span>Checked Iran, Nigeria, shipping risk, and prior oil shock notes.</span>
+              </article>
+              <article class="step">
+                <b>3. Flagged gap</b>
+                <span>Ben added Algeria as missing context from his laptop.</span>
+              </article>
+              <article class="step">
+                <b>4. Needs decision</b>
+                <span>Should this reduce the room estimate or stay as watch item?</span>
+              </article>
+            </div>
+
+            <div class="thread-body">
+              <article class="answer">
+                <h3>Agent finding</h3>
+                <p>Oil risk is probably not a direct NVIDIA demand issue. It matters if the group believes higher energy prices could delay rate cuts or compress high-multiple tech valuations.</p>
+                <ul>
+                  <li>Iran/shipping risk has the clearest path to broad oil shock.</li>
+                  <li>Nigeria looks more local unless it compounds with other supply risk.</li>
+                  <li>Algeria may matter more for European gas than immediate crude pricing.</li>
+                  <li>The agent recommends keeping this as a valuation-multiple risk, not a demand risk.</li>
+                </ul>
+              </article>
+
+              <article class="answer">
+                <h3>Human edits and objections</h3>
+                <p><strong>Ben:</strong> “Do not overstate Nigeria. Check if the issue affects actual production volume.”</p>
+                <p><strong>Michelle:</strong> “Only interrupt the room if this changes our year-end number by more than 3%.”</p>
+                <p><strong>Agent response:</strong> Reclassifying as watch item unless combined with Iran escalation or hotter CPI data.</p>
+              </article>
+            </div>
+          </section>
+
+          <aside class="panel">
+            <div class="panel-head">
+              <h2 class="panel-title">
+                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 20h9M12 4h9M4 9h16M4 15h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                Redirect Agent
+              </h2>
+              <span class="panel-sub">live</span>
+            </div>
+            <div class="intervene">
+              <textarea id="interveneBox">Check production volume, not just headlines. Also compare this to the old CPI sensitivity note.</textarea>
+              <button class="primary-btn" id="redirectAgent">
+                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M3 12h18M15 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Redirect research
+              </button>
+              <button class="ghost-btn" data-toast="Agent marked this as a watch item">
+                Mark as watch item
+              </button>
+              <button class="danger-btn" data-toast="Agent finding challenged by human reviewer">
+                Challenge finding
+              </button>
+
+              <article class="source-row">
+                <strong>Sources checked</strong>
+                <span>Live web search, uploaded Cisco memo, old CPI sensitivity note, room transcript from 12:04 to 12:09.</span>
+              </article>
+              <article class="source-row">
+                <strong>Agent question</strong>
+                <span>Should valuation multiple risk be shown as a separate parent branch from fundamentals?</span>
+              </article>
+              <article class="source-row">
+                <strong>Next update</strong>
+                <span>Agent will return a tighter version after checking production-volume evidence.</span>
+              </article>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const screenButtons = document.querySelectorAll('[data-screen]');
+    const screens = document.querySelectorAll('.screen');
+    const toast = document.getElementById('toast');
+
+    function showScreen(id) {
+      screens.forEach((screen) => screen.classList.toggle('active', screen.id === id));
+      screenButtons.forEach((button) => button.classList.toggle('active', button.dataset.screen === id));
+    }
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add('show');
+      window.clearTimeout(window.toastTimer);
+      window.toastTimer = window.setTimeout(() => toast.classList.remove('show'), 1900);
+    }
+
+    const focusData = {
+      root: {
+        type: 'room summary',
+        age: 'live',
+        title: 'NVIDIA year-end estimate',
+        text: 'Demand strength still dominates the room view, but the valuation-multiple risk is now the biggest live uncertainty.',
+        impact: 'Open',
+        action: 'Keep open',
+        source: 'Source: Synthesis AI',
+        connected: 'Connected to: Root question'
+      },
+      compute: {
+        type: 'quick research',
+        age: 'running',
+        title: 'AI compute renters',
+        text: 'The quick research lane is checking who is actually renting compute and whether their capex plans changed this quarter.',
+        impact: 'Strong up',
+        action: 'Wait',
+        source: 'Source: Quick Research AI',
+        connected: 'Connected to: AI compute renters'
+      },
+      geopol: {
+        type: 'important finding',
+        age: '2 min ago',
+        title: 'Geopolitics and oil',
+        text: 'The agent found a possible link from oil shock to inflation expectations, but says it only matters for NVIDIA if it changes valuation multiples.',
+        impact: '-4.5%',
+        action: 'Review',
+        source: 'Source: Deep Research AI',
+        connected: 'Connected to: Geopolitics and oil'
+      },
+      oil: {
+        type: 'human-added branch',
+        age: 'just now',
+        title: 'Nigeria oil disruption',
+        text: 'Victor added this as a quiet note. The system thinks it needs specific evidence on production volume before it should affect the main estimate.',
+        impact: 'Unclear',
+        action: 'Research',
+        source: 'Source: Victor',
+        connected: 'Connected to: Geopolitics and oil'
+      },
+      capex: {
+        type: 'human question',
+        age: '4 min ago',
+        title: 'Capex cycle',
+        text: 'Michelle wants actual quarter-over-quarter capex changes so the demand branch does not become a generic vibes argument.',
+        impact: 'Up',
+        action: 'Check data',
+        source: 'Source: Michelle',
+        connected: 'Connected to: AI compute renters'
+      },
+      memory: {
+        type: 'private context',
+        age: 'found',
+        title: 'Old Cisco memo',
+        text: 'Memory retrieved a prior bubble-comparison memo and attached it to the valuation-history branch.',
+        impact: 'Context',
+        action: 'Compare',
+        source: 'Source: Memory AI',
+        connected: 'Connected to: Valuation history'
+      },
+      question: {
+        type: 'suggested question',
+        age: 'AI',
+        title: 'Sovereign AI demand',
+        text: 'The system suggests asking whether sovereign AI demand should be modeled separately from hyperscaler orders.',
+        impact: 'Unknown',
+        action: 'Human choice',
+        source: 'Source: Question AI',
+        connected: 'Connected to: AI compute renters'
+      }
+    };
+
+    function setFocus(id) {
+      const data = focusData[id];
+      if (!data) return;
+      document.getElementById('focusType').textContent = data.type;
+      document.getElementById('focusAge').textContent = data.age;
+      document.getElementById('focusTitle').textContent = data.title;
+      document.getElementById('focusText').textContent = data.text;
+      document.getElementById('focusImpact').textContent = data.impact;
+      document.getElementById('focusAction').textContent = data.action;
+      document.getElementById('focusSource').textContent = data.source;
+      document.getElementById('focusConnected').textContent = data.connected;
+      document.querySelectorAll('[data-focus]').forEach((node) => {
+        node.classList.toggle('selected', node.dataset.focus === id);
+      });
+    }
+
+    screenButtons.forEach((button) => {
+      button.addEventListener('click', () => showScreen(button.dataset.screen));
+    });
+
+    document.querySelectorAll('[data-screen-button]').forEach((button) => {
+      button.addEventListener('click', () => showScreen(button.dataset.screenButton));
+    });
+
+    document.querySelectorAll('[data-open-thread]').forEach((button) => {
+      button.addEventListener('click', () => {
+        showScreen('thread');
+        showToast('Opened live agent thread');
+      });
+    });
+
+    document.querySelectorAll('[data-focus]').forEach((button) => {
+      button.addEventListener('click', () => {
+        setFocus(button.dataset.focus);
+        showToast('Focused branch on room display');
+      });
+      button.addEventListener('dblclick', () => {
+        showScreen('thread');
+        showToast('Opened full agent thread');
+      });
+    });
+
+    document.querySelectorAll('[data-focus-button]').forEach((button) => {
+      button.addEventListener('click', () => {
+        setFocus(button.dataset.focusButton);
+        showToast('Focused important finding');
+      });
+    });
+
+    document.querySelectorAll('[data-toast]').forEach((button) => {
+      button.addEventListener('click', () => showToast(button.dataset.toast));
+    });
+
+    document.getElementById('sendPrompt').addEventListener('click', () => {
+      const text = document.getElementById('promptBox').value.trim();
+      if (!text) return;
+      const row = document.createElement('article');
+      row.className = 'note-row';
+      row.innerHTML = `<strong>Ben typed</strong><span>${text}</span>`;
+      document.getElementById('backchannel').prepend(row);
+      showToast('Sent to shared room without interrupting');
+    });
+
+    document.getElementById('redirectAgent').addEventListener('click', () => {
+      const text = document.getElementById('interveneBox').value.trim();
+      showToast(text ? 'Agent redirected with human feedback' : 'Add a note before redirecting');
+    });
+  </script>
+</body>
+</html>

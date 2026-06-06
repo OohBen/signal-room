@@ -1,0 +1,5 @@
+packages:
+  - "apps/web"
+  - "apps/gateway"
+  - "apps/spacetime/spacetimedb"
+

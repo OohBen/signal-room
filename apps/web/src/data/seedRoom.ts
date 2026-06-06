@@ -1,0 +1,412 @@
+import type { SignalRoomState } from "../types/signalRoom";
+
+export const seedRoomState: SignalRoomState = {
+  roomCode: "NVDA-YE-24",
+  displayName: "Ben",
+  question: "Where could NVIDIA trade by year end?",
+  questionSubtitle: "Main room display · shared map, live questions, and important findings",
+  synthesisState: "Open",
+  defaultFocusNodeId: "geopol",
+  mapEdges: [
+    { id: "root-compute", path: "M500 280 C360 245 300 150 170 120" },
+    { id: "root-oil", path: "M500 300 C350 350 250 475 170 445" },
+    { id: "root-geopol", path: "M500 275 C650 230 735 135 835 128" },
+    { id: "root-capex", path: "M500 315 C650 365 740 472 838 442" },
+    { id: "root-memory", path: "M500 250 C505 175 505 110 500 84" },
+    { id: "root-question", path: "M500 350 C505 430 505 510 500 568" },
+  ],
+  mapNodes: [
+    {
+      id: "root",
+      title: "NVIDIA year-end estimate",
+      summary:
+        "Synthesizer says demand strength still dominates, but oil/rates branch is now the biggest uncertainty.",
+      impact: "+7% since start",
+      impactTone: "up",
+      source: "Synthesis AI",
+      ownerInitial: "S",
+      ownerKind: "agent",
+      positionClass: "n-root",
+      isRoot: true,
+      focus: {
+        type: "room summary",
+        typeTone: "blue",
+        age: "live",
+        title: "NVIDIA year-end estimate",
+        text:
+          "Demand strength still dominates the room view, but the valuation-multiple risk is now the biggest live uncertainty.",
+        impact: "Open",
+        action: "Keep open",
+        source: "Source: Synthesis AI",
+        connected: "Connected to: Root question",
+      },
+    },
+    {
+      id: "compute",
+      title: "AI compute renters",
+      summary: "Quick agent is checking hyperscaler capex and enterprise demand signals.",
+      impact: "strong up",
+      impactTone: "up",
+      source: "Quick AI",
+      ownerInitial: "Q",
+      ownerKind: "agent",
+      positionClass: "n-compute",
+      focus: {
+        type: "quick research",
+        typeTone: "blue",
+        age: "running",
+        title: "AI compute renters",
+        text:
+          "The quick research lane is checking who is actually renting compute and whether their capex plans changed this quarter.",
+        impact: "Strong up",
+        action: "Wait",
+        source: "Source: Quick Research AI",
+        connected: "Connected to: AI compute renters",
+      },
+    },
+    {
+      id: "geopol",
+      title: "Geopolitics and oil",
+      summary: "Deep agent found possible rate-pressure link. Waiting for human review.",
+      impact: "risk down",
+      impactTone: "down",
+      source: "Deep AI",
+      ownerInitial: "D",
+      ownerKind: "agent",
+      positionClass: "n-geopol",
+      hasAlert: true,
+      focus: {
+        type: "important finding",
+        typeTone: "red",
+        age: "2 min ago",
+        title: "Geopolitics and oil",
+        text:
+          "The agent found a possible link from oil shock to inflation expectations, but says it only matters for NVIDIA if it changes valuation multiples.",
+        impact: "-4.5%",
+        action: "Review",
+        source: "Source: Deep Research AI",
+        connected: "Connected to: Geopolitics and oil",
+      },
+    },
+    {
+      id: "oil",
+      title: "Nigeria oil disruption",
+      summary: "Victor added this quietly. Agent marked it as specific-research needed.",
+      impact: "unclear",
+      impactTone: "flat",
+      source: "Victor",
+      ownerInitial: "V",
+      ownerKind: "human",
+      positionClass: "n-oil",
+      focus: {
+        type: "human-added branch",
+        typeTone: "green",
+        age: "just now",
+        title: "Nigeria oil disruption",
+        text:
+          "Victor added this as a quiet note. The system thinks it needs specific evidence on production volume before it should affect the main estimate.",
+        impact: "Unclear",
+        action: "Research",
+        source: "Source: Victor",
+        connected: "Connected to: Geopolitics and oil",
+      },
+    },
+    {
+      id: "capex",
+      title: "Capex cycle",
+      summary: "Michelle's question converted into a research thread with 3 source requests.",
+      impact: "up",
+      impactTone: "up",
+      source: "Michelle",
+      ownerInitial: "M",
+      ownerKind: "human",
+      positionClass: "n-capex",
+      focus: {
+        type: "human question",
+        typeTone: "amber",
+        age: "4 min ago",
+        title: "Capex cycle",
+        text:
+          "Michelle wants actual quarter-over-quarter capex changes so the demand branch does not become a generic vibes argument.",
+        impact: "Up",
+        action: "Check data",
+        source: "Source: Michelle",
+        connected: "Connected to: AI compute renters",
+      },
+    },
+    {
+      id: "memory",
+      title: "Old Cisco memo",
+      summary: "Memory search found a prior bubble-comparison note from last month.",
+      impact: "context",
+      impactTone: "flat",
+      source: "Memory AI",
+      ownerInitial: "M",
+      ownerKind: "agent",
+      positionClass: "n-memory",
+      focus: {
+        type: "private context",
+        typeTone: "green",
+        age: "found",
+        title: "Old Cisco memo",
+        text:
+          "Memory retrieved a prior bubble-comparison memo and attached it to the valuation-history branch.",
+        impact: "Context",
+        action: "Compare",
+        source: "Source: Memory AI",
+        connected: "Connected to: Valuation history",
+      },
+    },
+    {
+      id: "question",
+      title: "Unanswered question",
+      summary: "Is sovereign AI demand incremental, or already included in hyperscaler orders?",
+      impact: "ask room",
+      impactTone: "flat",
+      source: "Question AI",
+      ownerInitial: "I",
+      ownerKind: "agent",
+      positionClass: "n-question",
+      focus: {
+        type: "suggested question",
+        typeTone: "violet",
+        age: "AI",
+        title: "Sovereign AI demand",
+        text:
+          "The system suggests asking whether sovereign AI demand should be modeled separately from hyperscaler orders.",
+        impact: "Unknown",
+        action: "Human choice",
+        source: "Source: Question AI",
+        connected: "Connected to: AI compute renters",
+      },
+    },
+  ],
+  presence: [
+    { id: "ben", label: "Ben viewing oil", positionClass: "p1", tone: "blue" },
+    { id: "michelle", label: "Michelle editing capex", positionClass: "p2", tone: "green" },
+  ],
+  roomEvents: [
+    { id: "map-split", text: "Mapper split oil risk into Iran, Nigeria, and inflation branches." },
+    {
+      id: "deep-finished",
+      text: "Deep Agent finished geopolitics pass and flagged one possible interrupt.",
+    },
+    { id: "memory-attached", text: "Ana attached Cisco memo to valuation-history node." },
+  ],
+  queueItems: [
+    {
+      id: "sovereign-demand",
+      title: "Question candidate",
+      metaChip: { label: "expires in 6 min", tone: "amber" },
+      body:
+        "Should sovereign AI demand be its own branch, instead of being buried inside hyperscaler capex?",
+      chips: [
+        { label: "Source: Synthesis AI", tone: "violet" },
+        { label: "Connected: AI compute renters" },
+      ],
+    },
+    {
+      id: "michelle-note",
+      title: "Human note from Michelle",
+      metaChip: { label: "shared quietly", tone: "green" },
+      body: "Need actual capex numbers. Do not let this become a generic demand story.",
+      chips: [
+        { label: "Source: Michelle", tone: "green" },
+        { label: "Connected: Capex cycle" },
+      ],
+    },
+  ],
+  transcript: [
+    {
+      id: "u-120418",
+      speaker: "Room conversation",
+      timestamp: "12:04:18",
+      text:
+        "The real NVIDIA question might be who is actually renting AI compute and whether that demand is still accelerating.",
+      chips: [
+        { label: "new branch", tone: "blue" },
+        { label: "researchable", tone: "green" },
+      ],
+    },
+    {
+      id: "u-120502",
+      speaker: "Room conversation",
+      timestamp: "12:05:02",
+      text:
+        "Agent, check the biggest AI compute renters and whether their capex plans changed this quarter.",
+      chips: [
+        { label: "quick task", tone: "amber" },
+        { label: "assigned" },
+      ],
+    },
+    {
+      id: "u-120641",
+      speaker: "Room conversation",
+      timestamp: "12:06:41",
+      text: "If oil spikes from Iran or Nigeria issues, rates expectations matter more than people think.",
+      chips: [
+        { label: "possible alert", tone: "red" },
+        { label: "cross-link", tone: "violet" },
+      ],
+    },
+    {
+      id: "u-120810",
+      speaker: "Room conversation",
+      timestamp: "12:08:10",
+      text:
+        "Pull in the old memo where we compared this to Cisco. I do not want generic internet answers here.",
+      chips: [{ label: "private memory", tone: "green" }],
+    },
+  ],
+  topicChunks: [
+    {
+      id: "tc-1",
+      window: "12:04-12:05",
+      chip: { label: "new node", tone: "blue" },
+      summary: "AI compute renters introduced as a demand-driver branch for NVIDIA.",
+    },
+    {
+      id: "tc-2",
+      window: "12:05-12:06",
+      chip: { label: "agent call", tone: "amber" },
+      summary: "Room asked for a quick check on biggest renters and capex changes.",
+    },
+    {
+      id: "tc-3",
+      window: "12:06-12:08",
+      chip: { label: "possible alert", tone: "red" },
+      summary:
+        "Oil and geopolitics reframed as a valuation-multiple risk, not direct demand risk.",
+    },
+    {
+      id: "tc-4",
+      window: "12:08-12:09",
+      chip: { label: "memory", tone: "green" },
+      summary:
+        "Private Cisco memo requested as grounding context for bubble-comparison discussion.",
+    },
+  ],
+  agents: [
+    {
+      id: "quick",
+      name: "Quick Research AI",
+      summary: "Checking renters and capex deltas",
+      status: "busy",
+    },
+    {
+      id: "deep",
+      name: "Deep Research AI",
+      summary: "Flagged oil/rates branch for review",
+      status: "alert",
+    },
+    {
+      id: "memory",
+      name: "Memory AI",
+      summary: "Cisco memo attached to context",
+      status: "ready",
+    },
+  ],
+  personalCards: [
+    {
+      id: "compute-card",
+      title: "AI compute renters",
+      body: "Quick research in progress. Three names found, waiting on capex detail.",
+      chip: { label: "research", tone: "blue" },
+      ownerInitial: "Q",
+      ownerKind: "agent",
+      ownerLabel: "Quick",
+    },
+    {
+      id: "geopol-card",
+      title: "Geopolitics and oil",
+      body: "Deep agent flagged possible rates link. You added Algeria as missing context.",
+      chip: { label: "urgent", tone: "red" },
+      ownerInitial: "B",
+      ownerKind: "human",
+      ownerLabel: "You",
+    },
+    {
+      id: "cisco-card",
+      title: "Cisco analogy",
+      body: "Memory retrieved last month's memo. Agent says analogy is useful but incomplete.",
+      chip: { label: "memory", tone: "green" },
+      ownerInitial: "M",
+      ownerKind: "agent",
+      ownerLabel: "Memory",
+    },
+    {
+      id: "question-card",
+      title: "Question for room",
+      body: "Should sovereign AI demand be modeled separately from hyperscaler demand?",
+      chip: { label: "ask", tone: "amber" },
+      ownerInitial: "I",
+      ownerKind: "agent",
+      ownerLabel: "Interview",
+    },
+  ],
+  scratchpad: [
+    {
+      id: "scratch-intro",
+      title: "Your private AI",
+      body: "This is a safe place to test a thought before adding it to the room map.",
+    },
+    {
+      id: "scratch-asked",
+      title: "You asked privately",
+      body: "Does Algeria matter in the Nigeria oil case, or is that a distraction?",
+    },
+    {
+      id: "scratch-replied",
+      title: "Private AI replied",
+      body: "Probably not for crude directly. It may matter more for European gas and inflation context.",
+    },
+  ],
+  sharedNotes: [],
+  thread: {
+    title: "Geopolitics and Oil Agent",
+    summary:
+      "Opened from the red-dot alert. The agent was researching whether oil disruptions could pressure inflation expectations enough to affect NVIDIA's valuation multiple.",
+    impact: "-4.5%",
+    steps: [
+      {
+        id: "heard",
+        title: "1. Heard in meeting",
+        body: "Victor linked oil spikes to rates expectations.",
+      },
+      {
+        id: "researched",
+        title: "2. Researched",
+        body: "Checked Iran, Nigeria, shipping risk, and prior oil shock notes.",
+      },
+      {
+        id: "gap",
+        title: "3. Flagged gap",
+        body: "Ben added Algeria as missing context from his laptop.",
+      },
+      {
+        id: "decision",
+        title: "4. Needs decision",
+        body: "Should this reduce the room estimate or stay as watch item?",
+      },
+    ],
+    findingParagraph:
+      "Oil risk is probably not a direct NVIDIA demand issue. It matters if the group believes higher energy prices could delay rate cuts or compress high-multiple tech valuations.",
+    findingBullets: [
+      "Iran/shipping risk has the clearest path to broad oil shock.",
+      "Nigeria looks more local unless it compounds with other supply risk.",
+      "Algeria may matter more for European gas than immediate crude pricing.",
+      "The agent recommends keeping this as a valuation-multiple risk, not a demand risk.",
+    ],
+    humanEdits: [
+      "Ben: Do not overstate Nigeria. Check if the issue affects actual production volume.",
+      "Michelle: Only interrupt the room if this changes our year-end number by more than 3%.",
+      "Agent response: Reclassifying as watch item unless combined with Iran escalation or hotter CPI data.",
+    ],
+    sourceSummary:
+      "Live web search, uploaded Cisco memo, old CPI sensitivity note, room transcript from 12:04 to 12:09.",
+    agentQuestion:
+      "Should valuation multiple risk be shown as a separate parent branch from fundamentals?",
+    nextUpdate:
+      "Agent will return a tighter version after checking production-volume evidence.",
+  },
+};
