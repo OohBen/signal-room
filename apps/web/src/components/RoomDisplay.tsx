@@ -199,10 +199,14 @@ function InspectorPanel({
   const questions = connectedItems.filter((item) => /question/i.test(item.title)).slice(0, 2);
   const tasks = connectedItems.filter((item) => /task/i.test(item.title)).slice(0, 2);
 
-  function submitAgentPrompt() {
+  async function submitAgentPrompt() {
     const body = agentPrompt.trim();
     if (!body) return;
-    room.actions.redirectAgent(body);
+    const queued = await room.actions.redirectAgent(body);
+    if (!queued) {
+      onToast("Agent task did not queue");
+      return;
+    }
     setAgentPrompt("");
     onToast("Agent task queued");
   }
@@ -333,7 +337,7 @@ function InspectorPanel({
               value={agentPrompt}
               onChange={(event) => setAgentPrompt(event.target.value)}
             />
-            <button className="btn primary full" type="button" onClick={submitAgentPrompt}>
+            <button className="btn primary full" type="button" onClick={() => void submitAgentPrompt()}>
               <Send size={15} strokeWidth={2.1} />
               Queue agent note
             </button>

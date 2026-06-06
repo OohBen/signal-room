@@ -21,7 +21,7 @@ interface LiveSignalsProps {
 }
 
 const KIND_LABEL: Record<RoomSignal["kind"], string> = {
-  answer: "You asked",
+  answer: "Question",
   important: "Important",
   finding: "Finding",
 };

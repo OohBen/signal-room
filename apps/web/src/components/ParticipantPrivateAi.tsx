@@ -46,26 +46,30 @@ export function ParticipantPrivateAi({ room, onClose, onOpenThread, onToast }: P
   function askPrivately() {
     if (!prompt.trim()) return;
     actions.addPrivatePrompt(prompt);
-    onToast("Sent to private AI without interrupting");
+    onToast("Saved privately");
   }
 
-  function addToSharedMap() {
+  async function addToSharedMap() {
     if (!prompt.trim()) return;
-    actions.addSharedNote(prompt);
+    const synced = await actions.addSharedNote(prompt);
+    if (!synced) {
+      onToast("Shared note did not sync");
+      return;
+    }
     onToast("Private note added to the shared map as a quiet human contribution");
   }
 
   return (
     <>
-      <button className="scrim" type="button" aria-label="Close private AI" onClick={onClose} />
-      <aside className="sheet" aria-label="Your private AI">
+      <button className="scrim" type="button" aria-label="Close private notes" onClick={onClose} />
+      <aside className="sheet" aria-label="Private notes">
         <div className="sheet-head">
           <span className="avatar human">{state.displayName.slice(0, 1).toUpperCase() || "B"}</span>
           <div className="t">
-            <b>Your private AI</b>
+            <b>Private notes</b>
             <span>Only you can see this · nothing here enters the room until you send it</span>
           </div>
-          <button className="icon-btn" type="button" onClick={onClose} aria-label="Close private AI">
+          <button className="icon-btn" type="button" onClick={onClose} aria-label="Close private notes">
             ×
           </button>
         </div>
@@ -75,12 +79,12 @@ export function ParticipantPrivateAi({ room, onClose, onOpenThread, onToast }: P
             <div className="panel-head inline-head">
               <PanelTitle>
                 <Monitor size={17} strokeWidth={2.1} />
-                Private AI
+                Private Notes
               </PanelTitle>
               <span className="panel-sub">{state.displayName}</span>
             </div>
             <textarea
-              aria-label="Private AI prompt"
+              aria-label="Private note"
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
             />
@@ -90,9 +94,9 @@ export function ParticipantPrivateAi({ room, onClose, onOpenThread, onToast }: P
             </div>
             <button className="primary-btn" type="button" onClick={askPrivately}>
               <Send size={17} strokeWidth={2.1} />
-              Ask privately
+              Save privately
             </button>
-            <button className="ghost-btn" type="button" onClick={addToSharedMap}>
+            <button className="ghost-btn" type="button" onClick={() => void addToSharedMap()}>
               <Plus size={17} strokeWidth={2.1} />
               Add to shared map
             </button>

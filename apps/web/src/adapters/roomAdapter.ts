@@ -16,9 +16,9 @@ export interface SignalRoomActions {
   clearFocusNode: () => void;
   setDisplayName: (displayName: string) => void;
   addPrivatePrompt: (text: string) => void;
-  addSharedNote: (text: string) => void;
+  addSharedNote: (text: string) => Promise<boolean>;
   addTranscriptChunk: (text: string) => Promise<boolean>;
-  redirectAgent: (text: string) => void;
+  redirectAgent: (text: string) => Promise<boolean>;
   updateMapNode: (nodeId: string, patch: { title?: string; summary?: string }) => Promise<boolean>;
   moveMapNode: (nodeId: string, x: number, y: number) => Promise<boolean>;
   moveCursor: (x: number, y: number) => void;
@@ -123,7 +123,7 @@ function createBlankRoomState(roomCode: string, displayName: string): SignalRoom
     scratchpad: [
       {
         id: "scratchpad-empty",
-        title: "Your private AI",
+        title: "Private notes",
         body: "Test an idea privately, then add it to the shared map when it is useful.",
       },
     ],
@@ -193,6 +193,15 @@ export function useRoomState(): SignalRoomSnapshot {
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
   }, [state.displayName, state.scratchpad]);
+
+  useEffect(() => {
+    if (state.displayName.trim().toLowerCase() !== "you") return;
+    const normalized = createGuestDisplayName();
+    setState((current) => ({ ...current, displayName: normalized }));
+    void live.upsertParticipant(normalized, "online", focusNodeId).catch((error: unknown) => {
+      console.error("Unable to migrate participant name", error);
+    });
+  }, [focusNodeId, live, state.displayName]);
 
   const focusedNode = useMemo(() => {
     return (
@@ -271,9 +280,8 @@ export function useRoomState(): SignalRoomSnapshot {
         },
         {
           id: createId("scratch-ai"),
-          title: "Private AI queued",
-          body:
-            "I will keep this private unless you add it to the shared room map or it crosses the interruption threshold.",
+          title: "Private note saved",
+          body: "This stays local unless you add it to the shared room map.",
         },
         ...current.scratchpad,
       ],
@@ -281,13 +289,16 @@ export function useRoomState(): SignalRoomSnapshot {
   }, []);
 
   const addSharedNote = useCallback(
-    (text: string) => {
+    async (text: string) => {
       const body = text.trim();
-      if (!body) return;
+      if (!body) return false;
 
-      void live.addSharedNote(body, focusNodeId, state.displayName).catch((error: unknown) => {
+      try {
+        return await live.addSharedNote(body, focusNodeId, state.displayName);
+      } catch (error: unknown) {
         console.error("Unable to sync shared note", error);
-      });
+        return false;
+      }
     },
     [focusNodeId, live, state.displayName]
   );
@@ -307,13 +318,17 @@ export function useRoomState(): SignalRoomSnapshot {
     [live]
   );
 
-  const redirectAgent = useCallback((text: string) => {
+  const redirectAgent = useCallback(async (text: string) => {
     const body = text.trim();
-    if (!body) return;
+    if (!body) return false;
 
-    void live.createAgentTask(body, focusNodeId).catch((error: unknown) => {
+    try {
+      const synced = await live.createAgentTask(body, focusNodeId);
+      if (!synced) return false;
+    } catch (error: unknown) {
       console.error("Unable to sync agent redirect", error);
-    });
+      return false;
+    }
 
     setState((current) => ({
       ...current,
@@ -326,6 +341,7 @@ export function useRoomState(): SignalRoomSnapshot {
         ...current.scratchpad,
       ],
     }));
+    return true;
   }, [focusNodeId, live]);
 
   const updateMapNode = useCallback(

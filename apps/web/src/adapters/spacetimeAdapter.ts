@@ -350,7 +350,7 @@ function mapTask(row: DbAgentTask, nodeById: Map<string, DbMapNode>): QueueItem 
 function mapSharedNote(row: DbSharedNote, nodeById: Map<string, DbMapNode>): SharedNote {
   return {
     id: `db-note-${rowId(row.noteId)}`,
-    author: row.sourceDisplayName,
+    author: safeDisplayName(row.sourceDisplayName),
     body: row.body,
     connected: connectedNodeName(row.nodeId, nodeById),
   };
@@ -402,11 +402,12 @@ function mapRoomEvent(row: DbRoomEvent): RoomEvent {
 
 function mapPresence(row: DbParticipant, selfHex: string, nodeById: Map<string, DbMapNode>): PresencePin {
   const idHex = row.identity.toHexString();
+  const displayName = safeDisplayName(row.displayName, idHex);
   const viewing = connectedNodeName(row.cursorNodeId, nodeById);
   return {
     id: `db-participant-${rowId(row.participantId)}`,
-    label: row.displayName,
-    initial: initialFromName(row.displayName),
+    label: displayName,
+    initial: initialFromName(displayName),
     color: colorForKey(idHex),
     viewing: viewing === "Room" ? "in room" : `viewing ${viewing}`,
     isSelf: idHex === selfHex,
@@ -415,15 +416,23 @@ function mapPresence(row: DbParticipant, selfHex: string, nodeById: Map<string, 
 
 function mapCursor(row: DbCursor, selfHex: string): CursorPin {
   const idHex = row.identity.toHexString();
+  const displayName = safeDisplayName(row.displayName, idHex);
   return {
     id: `db-cursor-${rowId(row.cursorId)}`,
-    label: row.displayName,
-    initial: initialFromName(row.displayName),
+    label: displayName,
+    initial: initialFromName(displayName),
     x: row.x,
     y: row.y,
     color: colorForKey(idHex),
     isSelf: idHex === selfHex,
   };
+}
+
+function safeDisplayName(displayName: string, identityHex = ""): string {
+  const trimmed = displayName.trim();
+  if (trimmed && trimmed.toLowerCase() !== "you") return trimmed;
+  const suffix = identityHex ? identityHex.slice(-4).toUpperCase() : "";
+  return suffix ? `Guest ${suffix}` : "Guest";
 }
 
 function mapWorker(row: DbAgentWorker, nodeById: Map<string, DbMapNode>): AgentWorker {

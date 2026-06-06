@@ -123,11 +123,39 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
           noiseSuppression: true,
         },
       });
-      audioStreamRef.current = stream;
-      openRealtimeSocket(stream);
+      startCaptureStream(stream);
     } catch (error: unknown) {
       stopRealtimeCapture(false);
       onToast(error instanceof Error ? error.message : "Could not start host mic");
+    }
+  }
+
+  function startCaptureStream(stream: MediaStream) {
+    audioStreamRef.current = stream;
+    for (const track of stream.getAudioTracks()) {
+      track.onended = () => {
+        if (audioStreamRef.current !== stream || !captureShouldRunRef.current || stopRequestedRef.current) return;
+        scheduleMicReacquire("Mic stream reconnecting");
+      };
+    }
+    openRealtimeSocket(stream);
+  }
+
+  async function reacquireMicStream() {
+    if (!captureShouldRunRef.current || stopRequestedRef.current) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          autoGainControl: true,
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      });
+      reconnectAttemptsRef.current = 0;
+      startCaptureStream(stream);
+    } catch {
+      setVoiceStatus("Mic permission reconnecting");
+      scheduleMicReacquire("Mic permission reconnecting");
     }
   }
 
@@ -168,12 +196,12 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
       if (audioSocketRef.current !== socket) return;
       clearStartTimeout();
       audioSocketRef.current = null;
-      if (captureShouldRunRef.current && !stopRequestedRef.current && streamHasLiveTrack(stream)) {
-        scheduleRealtimeReconnect(stream, "Realtime socket reconnecting");
+      if (captureShouldRunRef.current && !stopRequestedRef.current) {
+        recoverRealtimeCapture(stream, "Realtime socket reconnecting");
         return;
       }
       stopRealtimeCapture(false);
-      setVoiceStatus("Realtime voice closed");
+      setVoiceStatus("Mic idle");
     };
   }
 
@@ -182,13 +210,13 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     if (payload.type === "ready") return;
 
     if (payload.type === "closed") {
-      if (captureShouldRunRef.current && !stopRequestedRef.current && streamHasLiveTrack(stream)) {
+      if (captureShouldRunRef.current && !stopRequestedRef.current) {
         setVoiceStatus("Realtime upstream reconnecting");
         socket.close();
         return;
       }
       stopRealtimeCapture(false);
-      setVoiceStatus("Realtime voice closed");
+      setVoiceStatus("Mic idle");
       return;
     }
 
@@ -213,14 +241,13 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
 
     if (payload.ok === false || payload.type === "error") {
       const message = payload.message || "Realtime voice failed";
-      if (
-        captureShouldRunRef.current &&
-        !stopRequestedRef.current &&
-        streamHasLiveTrack(stream) &&
-        isRecoverableRealtimeError(message)
-      ) {
-        setVoiceStatus("Realtime voice reconnecting");
-        socket.close();
+      if (captureShouldRunRef.current && !stopRequestedRef.current && !isFatalRealtimeError(message)) {
+        if (streamHasLiveTrack(stream)) {
+          setVoiceStatus("Realtime voice reconnecting");
+          socket.close();
+        } else {
+          scheduleMicReacquire("Mic stream reconnecting");
+        }
         return;
       }
       onToast(message);
@@ -369,33 +396,67 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     setVoiceStatus("Mic idle");
   }
 
-  function scheduleRealtimeReconnect(stream: MediaStream, status: string) {
-    if (!captureShouldRunRef.current || stopRequestedRef.current || !streamHasLiveTrack(stream)) {
+  function recoverRealtimeCapture(stream: MediaStream, status: string) {
+    if (!captureShouldRunRef.current || stopRequestedRef.current) {
       stopRealtimeCapture(false);
-      setVoiceStatus("Realtime voice closed");
+      setVoiceStatus("Mic idle");
+      return;
+    }
+    if (!streamHasLiveTrack(stream)) {
+      scheduleMicReacquire("Mic stream reconnecting");
+      return;
+    }
+    scheduleRealtimeReconnect(stream, status);
+  }
+
+  function scheduleRealtimeReconnect(stream: MediaStream, status: string) {
+    clearStartTimeout();
+    clearReconnectTimer();
+    const attempt = reconnectAttemptsRef.current + 1;
+    reconnectAttemptsRef.current = attempt;
+
+    const delayMs = Math.min(5000, 400 * attempt);
+    setListening(true);
+    setVoiceStarting(!audioContextRef.current);
+    setVoiceStatus(status);
+    reconnectTimerRef.current = window.setTimeout(() => {
+      if (!captureShouldRunRef.current || stopRequestedRef.current) {
+        stopRealtimeCapture(false);
+        return;
+      }
+      recoverRealtimeCapture(stream, status);
+    }, delayMs);
+  }
+
+  function scheduleMicReacquire(status: string) {
+    if (!captureShouldRunRef.current || stopRequestedRef.current) {
+      stopRealtimeCapture(false);
+      setVoiceStatus("Mic idle");
       return;
     }
 
     clearStartTimeout();
     clearReconnectTimer();
+    const socket = audioSocketRef.current;
+    audioSocketRef.current = null;
+    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+      socket.close();
+    }
+    stopAudioGraph();
+    audioStreamRef.current?.getTracks().forEach((track) => {
+      track.onended = null;
+      track.stop();
+    });
+    audioStreamRef.current = null;
+
     const attempt = reconnectAttemptsRef.current + 1;
     reconnectAttemptsRef.current = attempt;
-    if (attempt > 6) {
-      onToast("Realtime voice disconnected");
-      stopRealtimeCapture(false);
-      return;
-    }
-
-    const delayMs = Math.min(3000, 400 * attempt);
-    setListening(Boolean(audioContextRef.current));
-    setVoiceStarting(!audioContextRef.current);
+    const delayMs = Math.min(5000, 500 * attempt);
+    setListening(true);
+    setVoiceStarting(false);
     setVoiceStatus(status);
     reconnectTimerRef.current = window.setTimeout(() => {
-      if (!captureShouldRunRef.current || stopRequestedRef.current || !streamHasLiveTrack(stream)) {
-        stopRealtimeCapture(false);
-        return;
-      }
-      openRealtimeSocket(stream);
+      void reacquireMicStream();
     }, delayMs);
   }
 
@@ -734,8 +795,8 @@ function streamHasLiveTrack(stream: MediaStream): boolean {
   return stream.getAudioTracks().some((track) => track.readyState === "live");
 }
 
-function isRecoverableRealtimeError(message: string): boolean {
-  return /\b(?:close|closed|disconnect|disconnected|socket|network|timeout|timed out|buffer too small|commit_empty)\b/i.test(
+function isFatalRealtimeError(message: string): boolean {
+  return /\b(?:openai_api_key is required|audioworklet is required|audiocontext is unavailable|microphone capture is unavailable)\b/i.test(
     message
   );
 }
