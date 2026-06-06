@@ -546,6 +546,8 @@ main {
 .map-viewport {
   position: relative;
   overflow: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 .map-viewport.infinite {
@@ -579,19 +581,9 @@ main {
 }
 
 .map-viewport::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
-}
-
-.map-viewport::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.map-viewport::-webkit-scrollbar-thumb {
-  border: 4px solid transparent;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--blue) 28%, transparent);
-  background-clip: padding-box;
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .map-rings,
@@ -855,7 +847,7 @@ main {
 }
 
 .zoom-ctrl {
-  display: none;
+  display: flex;
   position: absolute;
   bottom: 18px;
   z-index: 22;
