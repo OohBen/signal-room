@@ -165,14 +165,14 @@ async function addMapSignal(
   if (!title || !summary) {
     return { ok: true, action: "add_map_signal", skipped: true, message: "missing title or summary" };
   }
-  if (isWeakMapSignal(title, summary, args.confidence)) {
-    return { ok: true, action: "add_map_signal", skipped: true, message: "weak map signal" };
-  }
 
   const database = normalizeDatabase(context.database);
   const roomCode = normalizeRoomCode(context.roomCode);
   const roomId = await ensureRoom(database, roomCode, cleanString(context.displayName, "Realtime listener", 80));
   const nodes = await listNodes(database, roomId);
+  if (isWeakMapSignal(title, summary, args.confidence, { allowLowConfidence: nodes.length === 0 })) {
+    return { ok: true, action: "add_map_signal", skipped: true, message: "weak map signal" };
+  }
   const kind = cleanEnum(args.kind, ["topic", "factor", "question", "claim", "topic_shift", "summary"], "topic");
   const urgency = cleanEnum(args.urgency, ["normal", "high"], "normal");
   const root = await ensureRootNode(database, roomId, nodes, { title, summary, urgency }, args.connectedTo);
@@ -572,12 +572,17 @@ function isGenericRoot(node: NodeRef): boolean {
   return false;
 }
 
-function isWeakMapSignal(title: string, summary: string, confidence: unknown): boolean {
+function isWeakMapSignal(
+  title: string,
+  summary: string,
+  confidence: unknown,
+  options: { allowLowConfidence?: boolean } = {}
+): boolean {
   const normalizedTitle = normalizeComparableText(title);
   const normalizedSummary = normalizeComparableText(summary);
   const numericConfidence = typeof confidence === "number" && Number.isFinite(confidence) ? confidence : undefined;
 
-  if (numericConfidence !== undefined && numericConfidence < 0.58) return true;
+  if (!options.allowLowConfidence && numericConfidence !== undefined && numericConfidence < 0.58) return true;
   if (/\b(?:brief utterance|tiny utterance|short utterance|filler|acknowledgement|acknowledgment)\b/.test(normalizedTitle)) {
     return true;
   }
