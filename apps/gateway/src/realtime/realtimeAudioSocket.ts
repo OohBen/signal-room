@@ -179,6 +179,7 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
   let pendingToolCalls = 0;
   let queuedOperatorTranscript = "";
   let activeOperatorTranscript = "";
+  let clientClosedNoticeSent = false;
   const recentTranscriptTurns: string[] = [];
 
   writeClient(clientSocket, {
@@ -198,8 +199,8 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
     });
   });
 
-  clientSocket.on("close", closeRealtime);
-  clientSocket.on("error", closeRealtime);
+  clientSocket.on("close", () => closeRealtime({ closeClient: false }));
+  clientSocket.on("error", () => closeRealtime({ closeClient: false }));
 
   async function handleClientMessage(data: RawData): Promise<void> {
     const message = parseRealtimeClientMessage(data);
@@ -309,10 +310,8 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
     });
     realtime.socket.on("close", () => {
       upstreamOpen = false;
-      writeClient(clientSocket, {
-        ok: true,
-        type: "closed",
-      });
+      notifyClientClosed();
+      closeClientSocket();
     });
   }
 
@@ -615,7 +614,8 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
     return closeAfterNextTranscript && (message.includes("buffer too small") || message.includes("commit_empty"));
   }
 
-  function closeRealtime(): void {
+  function closeRealtime(options: { closeClient?: boolean } = {}): void {
+    const closeClient = options.closeClient ?? true;
     if (closeTimer) {
       clearTimeout(closeTimer);
       closeTimer = undefined;
@@ -634,6 +634,25 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
     if (realtime) {
       realtime.close({ code: 1000, reason: "client closed" });
       realtime = undefined;
+    }
+    notifyClientClosed();
+    if (closeClient) {
+      closeClientSocket();
+    }
+  }
+
+  function notifyClientClosed(): void {
+    if (clientClosedNoticeSent) return;
+    clientClosedNoticeSent = true;
+    writeClient(clientSocket, {
+      ok: true,
+      type: "closed",
+    });
+  }
+
+  function closeClientSocket(): void {
+    if (clientSocket.readyState === WebSocket.OPEN || clientSocket.readyState === WebSocket.CONNECTING) {
+      clientSocket.close(1000, "realtime closed");
     }
   }
 }
