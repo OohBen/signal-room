@@ -12,6 +12,7 @@ interface LiveSignalsProps {
   signals: RoomSignal[];
   activeAgents: number;
   rootAnswer?: RootAnswer;
+  canRunFleet: boolean;
   fleetRunning: boolean;
   onRunFleet: () => void;
   onOpenNode: (nodeId: string) => void;
@@ -29,6 +30,7 @@ export function LiveSignals({
   signals,
   activeAgents,
   rootAnswer,
+  canRunFleet,
   fleetRunning,
   onRunFleet,
   onOpenNode,
@@ -36,6 +38,7 @@ export function LiveSignals({
   onHide,
 }: LiveSignalsProps) {
   const fleetThinking = fleetRunning || rootAnswer?.state === "working";
+  const fleetDisabled = fleetThinking || !canRunFleet;
 
   return (
     <aside className="panel right live-signals">
@@ -43,9 +46,15 @@ export function LiveSignals({
         <Radio size={15} strokeWidth={2.1} />
         <span className="t">Live signals</span>
         <span className="sp" />
-        <button className="run-fleet" type="button" onClick={onRunFleet} disabled={fleetThinking}>
+        <button
+          className="run-fleet"
+          type="button"
+          onClick={onRunFleet}
+          disabled={fleetDisabled}
+          title={canRunFleet ? undefined : "Map needs a topic before the fleet can run"}
+        >
           <Network size={13} strokeWidth={2.2} />
-          {fleetThinking ? "Fleet thinking…" : "Run agent fleet"}
+          {!canRunFleet ? "Waiting for map" : fleetThinking ? "Fleet thinking…" : "Run agent fleet"}
         </button>
         <button className="icon-btn mini" type="button" onClick={onClose} title="Close">
           <X size={15} strokeWidth={2.1} />

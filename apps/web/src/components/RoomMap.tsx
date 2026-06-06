@@ -182,84 +182,86 @@ export function RoomMap({
   }, []);
 
   return (
-    <div
-      className="map-viewport infinite"
-      ref={viewportRef}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={endPan}
-      onPointerLeave={endPan}
-    >
+    <div className="map-frame">
       <div
-        className="map-scroll-space"
-        style={{
-          width: STAGE_W * zoom,
-          height: STAGE_H * zoom,
-        }}
+        className="map-viewport infinite"
+        ref={viewportRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={endPan}
+        onPointerLeave={endPan}
       >
-      <div className="map-layer" style={{ transform: `scale(${zoom})`, width: STAGE_W, height: STAGE_H }}>
-        <svg className="map-rings" width={STAGE_W} height={STAGE_H} viewBox={`0 0 ${STAGE_W} ${STAGE_H}`}>
-          {[136, 270, 420, 560].map((radius) => (
-            <circle cx={CX} cy={CY} key={radius} r={radius} />
-          ))}
-        </svg>
-
-        <svg className="map-edges" width={STAGE_W} height={STAGE_H} viewBox={`0 0 ${STAGE_W} ${STAGE_H}`}>
-          {drawnEdges.map(({ edge, from, to }) => {
-            const active = focusedNodeId === edge.fromId || focusedNodeId === edge.toId;
-            const dim = hasSelection && !active;
-            const midX = (from.x + to.x) / 2;
-            const midY = (from.y + to.y) / 2;
-            return (
-              <g key={edge.id} className={["edge-group", active ? "active" : "", dim ? "dim" : ""].filter(Boolean).join(" ")}>
-                <path className="lit" d={nodeEdgePath(from, to)} />
-                {edge.label ? (
-                  <text className="edge-label" x={midX} y={midY} textAnchor="middle">
-                    {edge.label}
-                  </text>
-                ) : null}
-              </g>
-            );
-          })}
-        </svg>
-
-        {layout.map(({ node, x, y }) => (
-          <MapNodeButton
-            dimmed={hasSelection && focusedNodeId !== node.id}
-            focused={focusedNodeId === node.id}
-            researching={researchingNodeIds?.has(node.id) ?? false}
-            key={node.id}
-            node={node}
-            x={x}
-            y={y}
-            onFocusNode={onFocusNode}
-          />
-        ))}
-
-        {nodes.length === 0 ? (
-          <div className="empty-map-state">
-            <h3>Waiting for first signal</h3>
-            <p>Start the mic and the room will build the map live from transcript and Realtime tools.</p>
-          </div>
-        ) : null}
-
-        {cursors.map((cursor) => (
-          <div className="live-cursor" key={cursor.id} style={{ left: cursor.x, top: cursor.y }}>
-            <svg width="20" height="22" viewBox="0 0 20 22" fill="none" aria-hidden="true">
-              <path
-                d="M2 2 L2 17 L6.5 13 L9.5 19.5 L12 18.3 L9 12 L15 12 Z"
-                fill={cursor.color}
-                stroke="#fff"
-                strokeWidth="1.4"
-                strokeLinejoin="round"
-              />
+        <div
+          className="map-scroll-space"
+          style={{
+            width: STAGE_W * zoom,
+            height: STAGE_H * zoom,
+          }}
+        >
+          <div className="map-layer" style={{ transform: `scale(${zoom})`, width: STAGE_W, height: STAGE_H }}>
+            <svg className="map-rings" width={STAGE_W} height={STAGE_H} viewBox={`0 0 ${STAGE_W} ${STAGE_H}`}>
+              {[136, 270, 420, 560].map((radius) => (
+                <circle cx={CX} cy={CY} key={radius} r={radius} />
+              ))}
             </svg>
-            <span className="live-cursor-label" style={{ backgroundColor: cursor.color }}>
-              {cursor.label}
-            </span>
+
+            <svg className="map-edges" width={STAGE_W} height={STAGE_H} viewBox={`0 0 ${STAGE_W} ${STAGE_H}`}>
+              {drawnEdges.map(({ edge, from, to }) => {
+                const active = focusedNodeId === edge.fromId || focusedNodeId === edge.toId;
+                const dim = hasSelection && !active;
+                const midX = (from.x + to.x) / 2;
+                const midY = (from.y + to.y) / 2;
+                return (
+                  <g key={edge.id} className={["edge-group", active ? "active" : "", dim ? "dim" : ""].filter(Boolean).join(" ")}>
+                    <path className="lit" d={nodeEdgePath(from, to)} />
+                    {edge.label ? (
+                      <text className="edge-label" x={midX} y={midY} textAnchor="middle">
+                        {edge.label}
+                      </text>
+                    ) : null}
+                  </g>
+                );
+              })}
+            </svg>
+
+            {layout.map(({ node, x, y }) => (
+              <MapNodeButton
+                dimmed={hasSelection && focusedNodeId !== node.id}
+                focused={focusedNodeId === node.id}
+                researching={researchingNodeIds?.has(node.id) ?? false}
+                key={node.id}
+                node={node}
+                x={x}
+                y={y}
+                onFocusNode={onFocusNode}
+              />
+            ))}
+
+            {nodes.length === 0 ? (
+              <div className="empty-map-state">
+                <h3>Waiting for first signal</h3>
+                <p>Start the mic and the room will build the map live from transcript and Realtime tools.</p>
+              </div>
+            ) : null}
+
+            {cursors.map((cursor) => (
+              <div className="live-cursor" key={cursor.id} style={{ left: cursor.x, top: cursor.y }}>
+                <svg width="20" height="22" viewBox="0 0 20 22" fill="none" aria-hidden="true">
+                  <path
+                    d="M2 2 L2 17 L6.5 13 L9.5 19.5 L12 18.3 L9 12 L15 12 Z"
+                    fill={cursor.color}
+                    stroke="#fff"
+                    strokeWidth="1.4"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <span className="live-cursor-label" style={{ backgroundColor: cursor.color }}>
+                  {cursor.label}
+                </span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
       </div>
 
       <div className="zoom-ctrl" style={{ right: insetRight + 16 }}>

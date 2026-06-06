@@ -538,9 +538,19 @@ main {
   inset: 0;
 }
 
-.map-wrap.full .map-viewport {
+.map-wrap.full .map-frame {
   position: absolute;
   inset: 0 0 96px 0;
+}
+
+.map-wrap.full .map-viewport {
+  position: absolute;
+  inset: 0;
+}
+
+.map-frame {
+  position: relative;
+  overflow: hidden;
 }
 
 .map-viewport {

@@ -54,6 +54,10 @@ function CanvasLayout({ room, onToast }: { room: SignalRoomSnapshot; onToast: (m
 
   async function runFleet() {
     if (fleetRunning) return;
+    if (state.mapNodes.length === 0) {
+      onToast("Start the mic or add transcript before running the fleet");
+      return;
+    }
     setFleetRunning(true);
     onToast("Agent fleet started");
     try {
@@ -124,6 +128,7 @@ function CanvasLayout({ room, onToast }: { room: SignalRoomSnapshot; onToast: (m
               signals={state.signals}
               activeAgents={activeWorkers.length}
               rootAnswer={rootAnswer}
+              canRunFleet={state.mapNodes.length > 0}
               fleetRunning={fleetRunning}
               onRunFleet={runFleet}
               onOpenNode={focusNode}

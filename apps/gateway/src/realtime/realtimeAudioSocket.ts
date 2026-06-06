@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import type { RealtimeFunctionTool } from "openai/resources/realtime/realtime";
+import type { RealtimeFunctionTool, RealtimeToolChoiceConfig } from "openai/resources/realtime/realtime";
 import { OpenAIRealtimeWS } from "openai/realtime/ws";
 import { WebSocket, type RawData } from "ws";
 
@@ -169,8 +169,11 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
   let uncommittedAudioMs = 0;
   let transcriptionPending = false;
   let operatorRunning = false;
+  let operatorResponseDone = false;
+  let operatorMutationCount = 0;
   let pendingToolCalls = 0;
   let queuedOperatorTranscript = "";
+  let activeOperatorTranscript = "";
   const recentTranscriptTurns: string[] = [];
 
   writeClient(clientSocket, {
@@ -400,38 +403,15 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
           });
         }).finally(() => {
           pendingToolCalls = Math.max(0, pendingToolCalls - 1);
-          if (closeAfterNextTranscript && !operatorRunning && pendingToolCalls === 0 && !queuedOperatorTranscript) {
-            closeRealtime();
-          }
+          finishOperatorIfSettled();
         });
       }
       return;
     }
 
     if (event.type === "response.done") {
-      operatorRunning = false;
-      writeClient(clientSocket, {
-        ok: true,
-        type: "operator_done",
-      });
-      if (queuedOperatorTranscript) {
-        const transcript = queuedOperatorTranscript;
-        queuedOperatorTranscript = "";
-        void queueOrRunRealtimeOperator(
-          transcript,
-          recentTranscriptTurns.slice(-MAX_RECENT_TRANSCRIPT_TURNS).join("\n\n")
-        ).catch((error: unknown) => {
-          writeClient(clientSocket, {
-            ok: false,
-            type: "operator_error",
-            message: error instanceof Error ? error.message : "Realtime room operator failed",
-          });
-        });
-        return;
-      }
-      if (closeAfterNextTranscript && pendingToolCalls === 0) {
-        closeRealtime();
-      }
+      operatorResponseDone = true;
+      finishOperatorIfSettled();
     }
   }
 
@@ -456,11 +436,17 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
     }
 
     operatorRunning = true;
+    operatorResponseDone = false;
+    operatorMutationCount = 0;
+    activeOperatorTranscript = latestTranscript;
     try {
       const snapshot = await readRealtimeRoomSnapshot(roomContext);
       sendRealtimeOperator({ latestTranscript, recentContext, snapshot });
     } catch (error) {
       operatorRunning = false;
+      operatorResponseDone = false;
+      operatorMutationCount = 0;
+      activeOperatorTranscript = "";
       throw error;
     }
   }
@@ -468,8 +454,16 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
   function sendRealtimeOperator(input: RealtimeOperatorInput): void {
     if (!realtime || !upstreamOpen) {
       operatorRunning = false;
+      operatorResponseDone = false;
+      operatorMutationCount = 0;
+      activeOperatorTranscript = "";
       return;
     }
+
+    const toolChoice: RealtimeToolChoiceConfig =
+      input.snapshot.nodes.length === 0 && shouldRunRealtimeOperator(input.latestTranscript)
+        ? { type: "function", name: "add_map_signal" }
+        : "required";
 
     realtime.send({
       type: "response.create",
@@ -477,7 +471,7 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
         conversation: "none",
         output_modalities: ["text"],
         parallel_tool_calls: true,
-        tool_choice: "auto",
+        tool_choice: toolChoice,
         max_output_tokens: 1000,
         tools: REALTIME_ROOM_TOOLS,
         instructions: buildOperatorInstructions(),
@@ -499,6 +493,9 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
 
   async function executeRealtimeTool(toolName: string, rawArguments: string): Promise<void> {
     const result = await handleRealtimeRoomTool(roomContext, toolName, rawArguments);
+    if (result.ok && !result.skipped && result.action !== "ignore_turn") {
+      operatorMutationCount += 1;
+    }
     writeClient(clientSocket, {
       ok: result.ok,
       type: "operator_event",
@@ -507,6 +504,55 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
       message: result.message,
       nodeId: result.nodeId,
     });
+  }
+
+  function finishOperatorIfSettled(): void {
+    if (!operatorResponseDone || pendingToolCalls > 0) return;
+
+    if (
+      operatorMutationCount === 0 &&
+      activeOperatorTranscript &&
+      shouldRunRealtimeOperator(activeOperatorTranscript)
+    ) {
+      console.warn(
+        JSON.stringify({
+          event: "realtime_operator_no_mutation",
+          roomCode: roomContext.roomCode,
+          transcript: activeOperatorTranscript.slice(0, 220),
+        })
+      );
+    }
+
+    completeOperatorRun();
+  }
+
+  function completeOperatorRun(): void {
+    operatorRunning = false;
+    operatorResponseDone = false;
+    operatorMutationCount = 0;
+    activeOperatorTranscript = "";
+    writeClient(clientSocket, {
+      ok: true,
+      type: "operator_done",
+    });
+    if (queuedOperatorTranscript) {
+      const transcript = queuedOperatorTranscript;
+      queuedOperatorTranscript = "";
+      void queueOrRunRealtimeOperator(
+        transcript,
+        recentTranscriptTurns.slice(-MAX_RECENT_TRANSCRIPT_TURNS).join("\n\n")
+      ).catch((error: unknown) => {
+        writeClient(clientSocket, {
+          ok: false,
+          type: "operator_error",
+          message: error instanceof Error ? error.message : "Realtime room operator failed",
+        });
+      });
+      return;
+    }
+    if (closeAfterNextTranscript && pendingToolCalls === 0) {
+      closeRealtime();
+    }
   }
 
   function closeRealtime(): void {
@@ -518,8 +564,11 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
     uncommittedAudioMs = 0;
     transcriptionPending = false;
     operatorRunning = false;
+    operatorResponseDone = false;
+    operatorMutationCount = 0;
     pendingToolCalls = 0;
     queuedOperatorTranscript = "";
+    activeOperatorTranscript = "";
     upstreamOpen = false;
     if (realtime) {
       realtime.close({ code: 1000, reason: "client closed" });
