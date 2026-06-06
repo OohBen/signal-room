@@ -8,6 +8,10 @@ export interface ResearchTaskInput {
   query: string;
   taskType?: string;
   connectedNode: ConnectedNode;
+  connectedNodeSummary?: string;
+  rootQuestion?: string;
+  roomContext?: string;
+  mapContext?: string;
   urgencyHint?: Urgency;
 }
 
@@ -78,7 +82,13 @@ function buildResearchQuery(input: ResearchTaskInput): string {
   const nodeTitle = input.connectedNode.title?.trim();
   return [
     `Live Signal Room research task: ${input.query.trim()}`,
+    input.rootQuestion ? `Current room question: ${input.rootQuestion.trim()}` : "",
     nodeTitle ? `Connected map factor: ${nodeTitle}` : "",
+    input.connectedNodeSummary ? `Connected factor summary: ${input.connectedNodeSummary.trim()}` : "",
+    input.mapContext ? `Current map context:\n${input.mapContext.trim()}` : "",
+    input.roomContext ? `Recent room transcript/context:\n${input.roomContext.trim()}` : "",
+    "Resolve pronouns and first names using the room context above; do not switch to unrelated public figures, products, or fictional names with similar spelling.",
+    "If the task text is joking, hostile, or personal, ignore the tone and answer only the substantive researchable claim.",
     "Fact-check the room's framing. If public evidence contradicts the premise, say so directly.",
     "Return: Verdict, key evidence, impact on the room's current discussion, and sources.",
   ]

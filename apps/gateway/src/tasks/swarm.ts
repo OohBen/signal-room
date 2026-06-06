@@ -5,6 +5,8 @@ import { writeResearchResultToSpacetime } from "../spacetime/writeback.js";
 const DEFAULT_DATABASE = "signal-room";
 const DEFAULT_WORKER_COUNT = 3;
 const DETAIL_MAX_LENGTH = 70;
+const ROOM_CONTEXT_MAX_LENGTH = 1800;
+const MAP_CONTEXT_MAX_LENGTH = 1200;
 
 interface RosterWorker {
   name: string;
@@ -41,10 +43,26 @@ interface QueuedTask {
   priority: number;
 }
 
+interface RoomResearchContext {
+  roomTitle: string;
+  rootTitle?: string;
+  rootSummary?: string;
+  transcript: string;
+  nodes: Map<string, RoomContextNode>;
+}
+
+interface RoomContextNode {
+  id: bigint;
+  nodeType: string;
+  title: string;
+  summary: string;
+}
+
 export async function runRoomSwarm(options: RoomSwarmOptions): Promise<RoomSwarmResult> {
   const database = options.database ?? DEFAULT_DATABASE;
   const workerCount = clampWorkerCount(options.workerCount ?? DEFAULT_WORKER_COUNT);
   const roomId = await resolveRoomIdByCode(database, options.roomCode);
+  const roomContext = await loadRoomResearchContext(database, roomId);
   const roster = WORKER_ROSTER.slice(0, workerCount);
 
   const setWorker = async (
@@ -101,7 +119,7 @@ export async function runRoomSwarm(options: RoomSwarmOptions): Promise<RoomSwarm
         reserved.add(taskKey);
 
         emptyPolls = 0;
-        const nodeTitle = task.nodeId === undefined ? undefined : await resolveNodeTitle(database, task.nodeId);
+        const nodeInfo = task.nodeId === undefined ? undefined : roomContext.nodes.get(task.nodeId.toString());
         const short = shortLabel(task.instructions);
 
         await setWorker(
@@ -142,8 +160,12 @@ export async function runRoomSwarm(options: RoomSwarmOptions): Promise<RoomSwarm
             taskType: task.taskType,
             connectedNode: {
               id: task.nodeId?.toString() ?? "room",
-              title: nodeTitle ?? "Room",
+              title: nodeInfo?.title ?? "Room",
             },
+            connectedNodeSummary: nodeInfo?.summary,
+            rootQuestion: roomContext.rootTitle ?? roomContext.roomTitle,
+            roomContext: roomContext.transcript,
+            mapContext: buildMapContext(roomContext, task.nodeId),
             urgencyHint: task.priority > 1 ? "high" : "medium",
           });
         } catch (error: unknown) {
@@ -230,12 +252,6 @@ async function resolveRoomIdByCode(database: string, roomCode: string): Promise<
   return BigInt(match[0]);
 }
 
-async function resolveNodeTitle(database: string, nodeId: bigint): Promise<string | undefined> {
-  const rows = parseSqlTable(await querySql(database, "SELECT node_id, room_id, title FROM map_node"));
-  const match = rows.find((row) => row[0] === nodeId.toString());
-  return match?.[2];
-}
-
 function parseOptionalBigInt(value: string): bigint | undefined {
   if (!value || value === "none" || value === "(none)") return undefined;
   if (!/^\d+$/.test(value)) return undefined;
@@ -257,6 +273,72 @@ function clampWorkerCount(value: number): number {
   if (!Number.isInteger(value) || value < 1) return 1;
   if (value > WORKER_ROSTER.length) return WORKER_ROSTER.length;
   return value;
+}
+
+async function loadRoomResearchContext(database: string, roomId: bigint): Promise<RoomResearchContext> {
+  const roomRows = parseSqlTable(await querySql(database, "SELECT room_id, title FROM room"));
+  const roomTitle = roomRows.find((row) => row[0] === roomId.toString())?.[1] ?? `Room ${roomId.toString()}`;
+
+  const nodeRows = parseSqlTable(
+    await querySql(database, "SELECT node_id, room_id, node_type, title, summary FROM map_node")
+  );
+  const nodes = new Map<string, RoomContextNode>();
+  for (const row of nodeRows) {
+    if (row.length < 5 || row[1] !== roomId.toString()) continue;
+    const id = BigInt(row[0]);
+    nodes.set(id.toString(), {
+      id,
+      nodeType: row[2],
+      title: row[3],
+      summary: row[4],
+    });
+  }
+
+  const root = [...nodes.values()].find((node) => node.nodeType.toLowerCase() === "root") ?? [...nodes.values()][0];
+  const transcriptRows = parseSqlTable(await querySql(database, "SELECT room_id, text FROM transcript_chunk"));
+  const transcript = transcriptRows
+    .filter((row) => row.length >= 2 && row[0] === roomId.toString())
+    .map((row) => row[1])
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return {
+    roomTitle,
+    rootTitle: root?.title,
+    rootSummary: root?.summary,
+    transcript: capFromEnd(transcript, ROOM_CONTEXT_MAX_LENGTH),
+    nodes,
+  };
+}
+
+function buildMapContext(context: RoomResearchContext, connectedNodeId: bigint | undefined): string {
+  const connected = connectedNodeId === undefined ? undefined : context.nodes.get(connectedNodeId.toString());
+  const lines = [
+    `Room title: ${context.roomTitle}`,
+    context.rootTitle ? `Root question: ${context.rootTitle}` : "",
+    context.rootSummary ? `Root summary: ${context.rootSummary}` : "",
+    connected ? `Connected node: ${connected.nodeType} - ${connected.title}: ${connected.summary}` : "",
+    "Other map nodes:",
+    ...[...context.nodes.values()]
+      .filter((node) => node.id !== connectedNodeId)
+      .slice(0, 8)
+      .map((node) => `- ${node.nodeType}: ${node.title}${node.summary ? ` - ${node.summary}` : ""}`),
+  ].filter(Boolean);
+
+  return capText(lines.join("\n"), MAP_CONTEXT_MAX_LENGTH);
+}
+
+function capText(value: string, maxLength: number): string {
+  const clean = value.trim();
+  if (clean.length <= maxLength) return clean;
+  return `${clean.slice(0, maxLength - 3)}...`;
+}
+
+function capFromEnd(value: string, maxLength: number): string {
+  const clean = value.trim();
+  if (clean.length <= maxLength) return clean;
+  return `...${clean.slice(clean.length - maxLength + 3)}`;
 }
 
 function wait(ms: number): Promise<void> {

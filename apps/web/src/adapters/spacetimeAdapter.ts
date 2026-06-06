@@ -280,8 +280,9 @@ function mapFinding(row: DbFinding, nodeById: Map<string, DbMapNode>): QueueItem
 
 function isLikelyRoomPrivateFinding(title: string, summary: string, connected: string): boolean {
   const text = `${title} ${summary} ${connected}`.toLowerCase();
+  const promptText = `${title} ${connected}`.toLowerCase();
   const hasPrivateCue = /\b(?:victor|ben|michelle|friend|friends|scrabble|diet coke|stole|phone|cake|caffeine|hard work|grades)\b/.test(text);
-  const hasPublicCue = /\b(?:stock|market|company|revenue|filing|earnings|bitcoin|oil|tariff|election|country|government|policy|latest|news|public company)\b/.test(text);
+  const hasPublicCue = /\b(?:linkedin|profile|professional|researcher|university|github|stock|market|company|revenue|filing|earnings|bitcoin|oil|tariff|election|country|government|policy|latest|news|public company)\b/.test(promptText);
   return hasPrivateCue && !hasPublicCue;
 }
 
@@ -315,6 +316,19 @@ function truncateLabel(label: string, maxLength: number): string {
 function mapSignal(row: DbFinding, nodeById: Map<string, DbMapNode>): RoomSignal {
   const node = row.nodeId === undefined ? undefined : nodeById.get(rowId(row.nodeId));
   const isAnswer = node?.nodeType === "human_question" || node?.nodeType === "question";
+  const connectedNodeTitle = connectedNodeName(row.nodeId, nodeById);
+  if (isLikelyRoomPrivateFinding(row.title, row.summary, connectedNodeTitle)) {
+    return {
+      id: `db-signal-${rowId(row.findingId)}`,
+      kind: "important",
+      title: "Needs room context",
+      body:
+        "This prompt depends on private room context or personal framing, so public web research cannot verify it reliably. Ask a narrower public question or add the missing context before treating it as evidence.",
+      sources: [],
+      connectedNodeId: row.nodeId === undefined ? undefined : nodeUiId(row.nodeId),
+      connectedNodeTitle,
+    };
+  }
   const kind: RoomSignal["kind"] = isAnswer ? "answer" : row.urgency === "high" ? "important" : "finding";
   return {
     id: `db-signal-${rowId(row.findingId)}`,
@@ -324,7 +338,7 @@ function mapSignal(row: DbFinding, nodeById: Map<string, DbMapNode>): RoomSignal
     body: row.summary,
     sources: parseSourceChips(row.linksJson),
     connectedNodeId: row.nodeId === undefined ? undefined : nodeUiId(row.nodeId),
-    connectedNodeTitle: connectedNodeName(row.nodeId, nodeById),
+    connectedNodeTitle,
   };
 }
 

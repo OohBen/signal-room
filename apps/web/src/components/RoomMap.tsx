@@ -346,13 +346,18 @@ export function RoomMap({
                 const dim = hasSelection && !active;
                 const midX = (from.x + to.x) / 2;
                 const midY = (from.y + to.y) / 2;
+                const label = edge.label.trim().toUpperCase();
+                const labelWidth = edgeLabelWidth(label);
                 return (
                   <g key={edge.id} className={["edge-group", active ? "active" : "", dim ? "dim" : ""].filter(Boolean).join(" ")}>
                     <path className="lit" d={nodeEdgePath(from, to)} />
-                    {edge.label ? (
-                      <text className="edge-label" x={midX} y={midY} textAnchor="middle">
-                        {edge.label}
-                      </text>
+                    {label ? (
+                      <g className="edge-label-group" transform={`translate(${midX} ${midY})`}>
+                        <rect x={-labelWidth / 2} y={-12} width={labelWidth} height={24} rx={8} />
+                        <text className="edge-label" x={0} y={4} textAnchor="middle">
+                          {label}
+                        </text>
+                      </g>
                     ) : null}
                   </g>
                 );
@@ -987,6 +992,10 @@ function nodeEdgePath(root: PositionedNode, target: PositionedNode): string {
   const c1 = rootX + (towardRight ? control : -control);
   const c2 = targetX + (towardRight ? -control : control);
   return `M${rootX} ${root.y} C ${c1} ${root.y}, ${c2} ${target.y}, ${targetX} ${target.y}`;
+}
+
+function edgeLabelWidth(label: string): number {
+  return clamp(label.length * 8 + 22, 62, 180);
 }
 
 function statusForNode(node: MapNode): { label: string; tone: "listening" | "checking" | "ready" } {

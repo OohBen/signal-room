@@ -1,4 +1,5 @@
 import { ArrowUpRight, ChevronRight, Network, Radio, Sparkles, X } from "lucide-react";
+import { useState } from "react";
 import type { RoomSignal } from "../types/signalRoom";
 
 export interface RootAnswer {
@@ -108,6 +109,10 @@ export function LiveSignals({
 }
 
 function SignalCard({ signal, onOpenNode }: { signal: RoomSignal; onOpenNode: (nodeId: string) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const body = formatSignalBody(signal.body);
+  const visibleBody = expanded ? body.full : body.preview;
+
   return (
     <article className={`signal-card ${signal.kind}`}>
       <div className="signal-top">
@@ -116,7 +121,12 @@ function SignalCard({ signal, onOpenNode }: { signal: RoomSignal; onOpenNode: (n
         <span className="signal-on" title={`On: ${signal.connectedNodeTitle}`}>{signal.connectedNodeTitle}</span>
       </div>
       <h3 className="signal-title">{signal.title}</h3>
-      <p className="signal-body">{signal.body}</p>
+      <p className="signal-body">{visibleBody}</p>
+      {body.canExpand ? (
+        <button className="inline-action signal-expand" type="button" onClick={() => setExpanded((open) => !open)}>
+          {expanded ? "Show less" : "Show full finding"}
+        </button>
+      ) : null}
       {signal.sources.length ? (
         <div className="signal-sources">
           {signal.sources.map((source, index) =>
@@ -140,4 +150,20 @@ function SignalCard({ signal, onOpenNode }: { signal: RoomSignal; onOpenNode: (n
       ) : null}
     </article>
   );
+}
+
+function formatSignalBody(raw: string): { preview: string; full: string; canExpand: boolean } {
+  const full = raw.replace(/\s+/g, " ").trim();
+  const verdictMatch = full.match(/\bVerdict:\s*([^.!?]+[.!?]?)/i);
+  const lead = verdictMatch?.[0]?.trim();
+  const body = lead ? full.replace(lead, "").trim() : full;
+  const limit = 360;
+  const previewSource = lead ? `${lead} ${body}`.trim() : body;
+  const preview =
+    previewSource.length <= limit ? previewSource : `${previewSource.slice(0, limit - 3).trim()}...`;
+  return {
+    preview,
+    full,
+    canExpand: full.length > preview.length,
+  };
 }
