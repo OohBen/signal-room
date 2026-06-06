@@ -656,6 +656,15 @@ main {
     opacity 0.16s ease;
 }
 
+.node-card.draggable {
+  cursor: grab;
+  touch-action: none;
+}
+
+.node-card.draggable:active {
+  cursor: grabbing;
+}
+
 .node-card:hover {
   transform: translate(-50%, calc(-50% - 2px));
   border-color: var(--ring);

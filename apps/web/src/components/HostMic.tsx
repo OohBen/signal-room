@@ -51,7 +51,7 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSocketRef = useRef<WebSocket | null>(null);
   const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const audioProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const audioWorkletRef = useRef<AudioWorkletNode | null>(null);
   const audioMutedOutputRef = useRef<GainNode | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const deltaTranscriptRef = useRef("");
@@ -236,29 +236,39 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     }
 
     const audioContext = new AudioContextCtor({ sampleRate: 24000 });
+    if (!audioContext.audioWorklet) {
+      await audioContext.close();
+      throw new Error("AudioWorklet is required for realtime microphone capture");
+    }
+
+    await audioContext.audioWorklet.addModule("/audio-worklets/realtime-pcm-worklet.js");
     const source = audioContext.createMediaStreamSource(stream);
-    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+    const worklet = new AudioWorkletNode(audioContext, "signal-room-pcm-capture", {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [1],
+      processorOptions: {
+        frameSamples: 2400,
+        targetRate: 24000,
+      },
+    });
     const mutedOutput = audioContext.createGain();
     mutedOutput.gain.value = 0;
 
-    processor.onaudioprocess = (event) => {
+    worklet.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
       if (socket.readyState !== WebSocket.OPEN) return;
-      const audioBase64 = float32ToPcm16Base64(
-        event.inputBuffer.getChannelData(0),
-        audioContext.sampleRate,
-        24000
-      );
+      const audioBase64 = bytesToBase64(new Uint8Array(event.data));
       socket.send(JSON.stringify({ type: "audio_pcm", audioBase64 }));
     };
 
-    source.connect(processor);
-    processor.connect(mutedOutput);
+    source.connect(worklet);
+    worklet.connect(mutedOutput);
     mutedOutput.connect(audioContext.destination);
     await audioContext.resume();
 
     audioContextRef.current = audioContext;
     audioSourceRef.current = source;
-    audioProcessorRef.current = processor;
+    audioWorkletRef.current = worklet;
     audioMutedOutputRef.current = mutedOutput;
   }
 
@@ -311,11 +321,13 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   }
 
   function stopAudioGraph() {
-    audioProcessorRef.current?.disconnect();
+    audioWorkletRef.current?.port.postMessage({ type: "flush" });
+    audioWorkletRef.current?.port.close();
+    audioWorkletRef.current?.disconnect();
     audioSourceRef.current?.disconnect();
     audioMutedOutputRef.current?.disconnect();
     void audioContextRef.current?.close();
-    audioProcessorRef.current = null;
+    audioWorkletRef.current = null;
     audioSourceRef.current = null;
     audioMutedOutputRef.current = null;
     audioContextRef.current = null;
@@ -621,21 +633,6 @@ function parseRealtimeSocketMessage(raw: unknown): RealtimeAudioSocketMessage {
   } catch {
     return { ok: false, type: "error", message: "Realtime voice message was not JSON" };
   }
-}
-
-function float32ToPcm16Base64(input: Float32Array, sourceRate: number, targetRate: number): string {
-  const ratio = sourceRate / targetRate;
-  const outputLength = Math.max(1, Math.floor(input.length / ratio));
-  const bytes = new Uint8Array(outputLength * 2);
-  const view = new DataView(bytes.buffer);
-
-  for (let index = 0; index < outputLength; index += 1) {
-    const sourceIndex = Math.min(input.length - 1, Math.floor(index * ratio));
-    const sample = Math.max(-1, Math.min(1, input[sourceIndex] ?? 0));
-    view.setInt16(index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-  }
-
-  return bytesToBase64(bytes);
 }
 
 function bytesToBase64(bytes: Uint8Array): string {

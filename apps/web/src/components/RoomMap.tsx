@@ -1,6 +1,7 @@
 import { Minus, Plus, Scan } from "lucide-react";
 import {
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -22,6 +23,7 @@ interface RoomMapProps {
   onFocusNode: (nodeId: string) => void;
   onClearFocus?: () => void;
   onCursorMove?: (x: number, y: number) => void;
+  onMoveNode?: (nodeId: string, x: number, y: number) => Promise<boolean>;
 }
 
 interface PositionedNode {
@@ -42,6 +44,20 @@ interface DragState {
   startY: number;
 }
 
+interface NodeDragState {
+  currentX: number;
+  currentY: number;
+  moved: boolean;
+  nodeId: string;
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startX: number;
+  startY: number;
+}
+
+type DraftNodePositions = Record<string, { x: number; y: number }>;
+
 const STAGE_W = 3600;
 const STAGE_H = 2400;
 const CX = STAGE_W / 2;
@@ -61,11 +77,15 @@ export function RoomMap({
   onFocusNode,
   onClearFocus,
   onCursorMove,
+  onMoveNode,
 }: RoomMapProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const nodeDragRef = useRef<NodeDragState | null>(null);
+  const suppressNodeClickRef = useRef<string | null>(null);
   const [zoom, setZoom] = useState(1);
-  const mapLayout = layoutMapNodes(nodes);
+  const [draftNodePositions, setDraftNodePositions] = useState<DraftNodePositions>({});
+  const mapLayout = layoutMapNodes(nodes, edges, draftNodePositions);
   const layout = mapLayout.nodes;
   const hasSelection = layout.some((positioned) => positioned.node.id === focusedNodeId);
   const positionById = new Map(layout.map((positioned) => [positioned.node.id, positioned]));
@@ -98,6 +118,20 @@ export function RoomMap({
     if (viewportRef.current) resizeObserver.observe(viewportRef.current);
     return () => resizeObserver.disconnect();
   }, [fit, nodes.length]);
+
+  useEffect(() => {
+    setDraftNodePositions((current) => {
+      let next: DraftNodePositions | undefined;
+      for (const [nodeId, position] of Object.entries(current)) {
+        const node = nodes.find((candidate) => candidate.id === nodeId);
+        if (!node || (samePosition(node.x, position.x) && samePosition(node.y, position.y))) {
+          next = { ...(next ?? current) };
+          delete next[nodeId];
+        }
+      }
+      return next ?? current;
+    });
+  }, [nodes]);
 
   function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement;
@@ -139,6 +173,71 @@ export function RoomMap({
     if (drag && !drag.moved) {
       onClearFocus?.();
     }
+  }
+
+  function handleNodePointerDown(node: MapNode, x: number, y: number, event: PointerEvent<HTMLButtonElement>) {
+    if (!onMoveNode) return;
+    nodeDragRef.current = {
+      currentX: x,
+      currentY: y,
+      moved: false,
+      nodeId: node.id,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: x,
+      startY: y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.stopPropagation();
+  }
+
+  function handleNodePointerMove(event: PointerEvent<HTMLButtonElement>) {
+    const drag = nodeDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    const dx = (event.clientX - drag.startClientX) / zoom;
+    const dy = (event.clientY - drag.startClientY) / zoom;
+    if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+    if (!drag.moved) return;
+
+    drag.currentX = clamp(drag.startX + dx, 150, STAGE_W - 150);
+    drag.currentY = clamp(drag.startY + dy, 120, STAGE_H - 120);
+    setDraftNodePositions((current) => ({
+      ...current,
+      [drag.nodeId]: { x: drag.currentX, y: drag.currentY },
+    }));
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function handleNodePointerEnd(event: PointerEvent<HTMLButtonElement>) {
+    const drag = nodeDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    nodeDragRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    event.stopPropagation();
+
+    if (!drag.moved) return;
+
+    suppressNodeClickRef.current = drag.nodeId;
+    event.preventDefault();
+    void onMoveNode?.(drag.nodeId, Math.round(drag.currentX), Math.round(drag.currentY)).then((ok) => {
+      if (ok) return;
+      setDraftNodePositions((current) => {
+        const next = { ...current };
+        delete next[drag.nodeId];
+        return next;
+      });
+    });
+  }
+
+  function handleNodeClick(nodeId: string) {
+    if (suppressNodeClickRef.current === nodeId) {
+      suppressNodeClickRef.current = null;
+      return;
+    }
+    onFocusNode(nodeId);
   }
 
   function zoomBy(factor: number) {
@@ -233,7 +332,11 @@ export function RoomMap({
                 node={node}
                 x={x}
                 y={y}
-                onFocusNode={onFocusNode}
+                draggable={Boolean(onMoveNode)}
+                onClickNode={handleNodeClick}
+                onPointerDownNode={handleNodePointerDown}
+                onPointerMoveNode={handleNodePointerMove}
+                onPointerEndNode={handleNodePointerEnd}
               />
             ))}
 
@@ -282,20 +385,28 @@ export function RoomMap({
 
 function MapNodeButton({
   dimmed,
+  draggable,
   focused,
   researching,
   node,
   x,
   y,
-  onFocusNode,
+  onClickNode,
+  onPointerDownNode,
+  onPointerMoveNode,
+  onPointerEndNode,
 }: {
   dimmed: boolean;
+  draggable: boolean;
   focused: boolean;
   researching: boolean;
   node: MapNode;
   x: number;
   y: number;
-  onFocusNode: (nodeId: string) => void;
+  onClickNode: (nodeId: string) => void;
+  onPointerDownNode: (node: MapNode, x: number, y: number, event: PointerEvent<HTMLButtonElement>) => void;
+  onPointerMoveNode: (event: PointerEvent<HTMLButtonElement>) => void;
+  onPointerEndNode: (event: PointerEvent<HTMLButtonElement>) => void;
 }) {
   const agent = node.agent;
   const noAgent = agent?.kind === "none";
@@ -315,6 +426,7 @@ function MapNodeButton({
       className={[
         "node-card",
         "positioned",
+        draggable ? "draggable" : "",
         node.isRoot ? "root" : "",
         focused ? "selected" : "",
         dimmed ? "dim" : "",
@@ -325,7 +437,11 @@ function MapNodeButton({
         .join(" ")}
       style={mapNodeStyle(x, y)}
       type="button"
-      onClick={() => onFocusNode(node.id)}
+      onClick={() => onClickNode(node.id)}
+      onPointerDown={(event) => onPointerDownNode(node, x, y, event)}
+      onPointerMove={onPointerMoveNode}
+      onPointerUp={onPointerEndNode}
+      onPointerCancel={onPointerEndNode}
     >
       {node.hasAlert ? <span className="alert-pin" aria-hidden="true" /> : null}
       {working ? <span className="research-ring" aria-hidden="true" /> : null}
@@ -344,26 +460,70 @@ function MapNodeButton({
   );
 }
 
-function layoutMapNodes(nodes: MapNode[]): MapLayout {
+function layoutMapNodes(nodes: MapNode[], edges: MapEdge[], draftNodePositions: DraftNodePositions): MapLayout {
   if (nodes.length === 0) return { nodes: [] };
 
   const root = nodes.find((node) => node.isRoot) ?? nodes[0];
-  const branches = nodes
-    .filter((node) => node.id !== root.id)
-    .sort(compareBranches);
-  const clusters = clusterBranches(branches);
+  const automaticNodes = layoutAutomaticNodes(nodes, edges, root);
 
   return {
-    nodes: [
-      { node: root, x: CX, y: CY },
-      ...clusters.flatMap((cluster, clusterIndex) =>
-        cluster.nodes.map((node, nodeIndex) => ({
-          node,
-          ...slotForCluster(clusterIndex, nodeIndex, cluster.nodes.length),
-        }))
-      ),
-    ],
+    nodes: automaticNodes.map((positioned) => {
+      const draft = draftNodePositions[positioned.node.id];
+      if (draft) return { ...positioned, x: draft.x, y: draft.y };
+      if (hasExplicitPosition(positioned.node)) {
+        return { ...positioned, x: positioned.node.x, y: positioned.node.y };
+      }
+      return positioned;
+    }),
   };
+}
+
+function layoutAutomaticNodes(nodes: MapNode[], edges: MapEdge[], root: MapNode): PositionedNode[] {
+  const branches = nodes.filter((node) => node.id !== root.id).sort(compareBranches);
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const childIdsByParent = new Map<string, string[]>();
+
+  for (const edge of edges) {
+    if (!nodeById.has(edge.fromId) || !nodeById.has(edge.toId) || edge.fromId === edge.toId) continue;
+    childIdsByParent.set(edge.fromId, [...(childIdsByParent.get(edge.fromId) ?? []), edge.toId]);
+  }
+
+  const used = new Set<string>([root.id]);
+  const clusters: NodeCluster[] = [];
+  const rootChildren = (childIdsByParent.get(root.id) ?? [])
+    .map((id) => nodeById.get(id))
+    .filter((node): node is MapNode => Boolean(node))
+    .sort(compareBranches);
+
+  for (const parent of rootChildren) {
+    const childNodes = (childIdsByParent.get(parent.id) ?? [])
+      .map((id) => nodeById.get(id))
+      .filter((node): node is MapNode => node !== undefined && node.id !== root.id)
+      .sort(compareBranches);
+
+    if (childNodes.length === 0) continue;
+    used.add(parent.id);
+    childNodes.forEach((node) => used.add(node.id));
+    clusters.push({
+      key: clusterKey(parent),
+      parentId: parent.id,
+      nodes: [parent, ...childNodes],
+    });
+  }
+
+  const remaining = branches.filter((node) => !used.has(node.id));
+  clusters.push(...clusterBranches(remaining));
+  clusters.sort(compareClusters);
+
+  return [
+    { node: root, x: CX, y: CY },
+    ...clusters.flatMap((cluster, clusterIndex) =>
+      cluster.nodes.map((node, nodeIndex) => ({
+        node,
+        ...slotForCluster(cluster, clusterIndex, nodeIndex),
+      }))
+    ),
+  ];
 }
 
 function compareBranches(left: MapNode, right: MapNode): number {
@@ -373,10 +533,11 @@ function compareBranches(left: MapNode, right: MapNode): number {
 function branchRank(node: MapNode): number {
   const type = node.focus.type.toLowerCase();
   if (node.hasAlert || node.impact === "review") return 0;
-  if (/\bfactor\b|\bresearch\b/.test(type)) return 1;
-  if (/\bclaim\b|\btopic shift\b/.test(type)) return 2;
-  if (/\bquestion\b|request|data/.test(type)) return 3;
-  return 4;
+  if (/\bbranch\b|\bcategory\b|\btheme\b/.test(type)) return 1;
+  if (/\bfactor\b|\bresearch\b/.test(type)) return 2;
+  if (/\bclaim\b|\btopic shift\b/.test(type)) return 3;
+  if (/\bquestion\b|request|data/.test(type)) return 4;
+  return 5;
 }
 
 function textKey(node: MapNode): string {
@@ -386,6 +547,7 @@ function textKey(node: MapNode): string {
 interface NodeCluster {
   key: string;
   nodes: MapNode[];
+  parentId?: string;
 }
 
 function clusterBranches(nodes: MapNode[]): NodeCluster[] {
@@ -403,22 +565,36 @@ function clusterBranches(nodes: MapNode[]): NodeCluster[] {
     .sort((left, right) => clusterRank(left.nodes[0]) - clusterRank(right.nodes[0]) || left.key.localeCompare(right.key));
 }
 
+function compareClusters(left: NodeCluster, right: NodeCluster): number {
+  return (
+    clusterRank(left.nodes[0]) - clusterRank(right.nodes[0]) ||
+    (left.parentId ? 0 : 1) - (right.parentId ? 0 : 1) ||
+    left.key.localeCompare(right.key)
+  );
+}
+
 function clusterRank(node: MapNode): number {
   const key = clusterKey(node);
   if (key === "urgent") return 0;
   if (key === "center-correction") return 1;
-  if (key === "claims") return 2;
-  if (key === "actors") return 3;
-  if (key === "local-politics") return 4;
-  if (key === "data-questions") return 5;
-  if (key === "factors") return 6;
-  return 7;
+  if (key === "environment") return 2;
+  if (key === "genetics") return 3;
+  if (key === "effort") return 4;
+  if (key === "claims") return 5;
+  if (key === "actors") return 6;
+  if (key === "local-politics") return 7;
+  if (key === "data-questions") return 8;
+  if (key === "factors") return 9;
+  return 10;
 }
 
 function clusterKey(node: MapNode): string {
   const text = `${node.focus.type} ${node.title} ${node.summary}`.toLowerCase();
   if (node.hasAlert || node.impact === "review") return "urgent";
   if (/\btopic shift\b|\bcorrection\b|\bcorrects?\b/.test(text)) return "center-correction";
+  if (/\b(environments?|school|high school|stuyvesant|classmates?|friends?|peers?|teachers?|upbringing|education)\b/.test(text)) return "environment";
+  if (/\b(genetic|genes?|inherited|parents?|siblings?|family|cousins?|aunts?|relatives?)\b/.test(text)) return "genetics";
+  if (/\b(hard work|effort|practice|discipline|studying|study habits?|work ethic|motivation)\b/.test(text)) return "effort";
   if (/\bquestion\b|\bhow much\b|\bdata\b|\btransported\b|\blook up\b|\bresearch\b/.test(text)) return "data-questions";
   if (/\bdomestic\b|\bregime\b|\binternal\b|\bpolitics\b|\bayatollah\b/.test(text)) return "local-politics";
   if (/\bpakistan\b|\bindia\b|\brussia\b|\bputin\b|\bchina\b|\bisrael\b|\bukraine\b|\bmediati|\bdiplomacy\b|\bactions?\b|\brole\b/.test(text)) return "actors";
@@ -427,33 +603,99 @@ function clusterKey(node: MapNode): string {
   return "other";
 }
 
-function slotForCluster(clusterIndex: number, nodeIndex: number, totalInCluster: number): { x: number; y: number } {
-  const anchors = [
-    { x: -520, y: -220 },
-    { x: -520, y: 180 },
-    { x: 480, y: -220 },
-    { x: 480, y: 180 },
-    { x: 0, y: -460 },
-    { x: 0, y: 450 },
-    { x: -800, y: 0 },
-    { x: 800, y: 0 },
-  ];
+interface ClusterAnchor {
+  direction: "left" | "right" | "top" | "bottom";
+  x: number;
+  y: number;
+}
 
-  const anchor = anchors[clusterIndex];
-  if (anchor) {
-    const yOffset = (nodeIndex - (totalInCluster - 1) / 2) * 150;
-    return { x: CX + anchor.x, y: CY + anchor.y + yOffset };
+function slotForCluster(cluster: NodeCluster, clusterIndex: number, nodeIndex: number): { x: number; y: number } {
+  const anchor = anchorForCluster(cluster.key, clusterIndex);
+  if (cluster.parentId) {
+    if (nodeIndex === 0) return { x: anchor.x, y: anchor.y };
+    return childSlot(anchor, nodeIndex - 1, cluster.nodes.length - 1);
   }
 
-  const extra = clusterIndex - anchors.length;
-  const ring = Math.floor(extra / 8);
-  const position = extra % 8;
-  const radius = 960 + ring * 300;
-  const angle = -Math.PI / 2 + position * ((Math.PI * 2) / 8) + ring * 0.21;
-  return {
-    x: CX + Math.cos(angle) * radius,
-    y: CY + Math.sin(angle) * radius + nodeIndex * 176,
+  return flatSlot(anchor, nodeIndex, cluster.nodes.length);
+}
+
+function anchorForCluster(key: string, clusterIndex: number): ClusterAnchor {
+  const keyed: Record<string, ClusterAnchor> = {
+    urgent: { x: CX - 520, y: CY - 420, direction: "left" },
+    "center-correction": { x: CX, y: CY - 500, direction: "top" },
+    environment: { x: CX - 400, y: CY - 250, direction: "left" },
+    genetics: { x: CX - 400, y: CY + 245, direction: "left" },
+    effort: { x: CX + 560, y: CY + 300, direction: "right" },
+    claims: { x: CX + 560, y: CY - 250, direction: "right" },
+    actors: { x: CX + 560, y: CY + 20, direction: "right" },
+    "local-politics": { x: CX + 260, y: CY - 520, direction: "top" },
+    "data-questions": { x: CX + 560, y: CY - 520, direction: "right" },
+    factors: { x: CX - 400, y: CY + 40, direction: "left" },
   };
+  if (keyed[key]) return keyed[key];
+
+  const anchors: ClusterAnchor[] = [
+    { x: CX - 820, y: CY - 40, direction: "left" },
+    { x: CX + 820, y: CY - 40, direction: "right" },
+    { x: CX - 280, y: CY + 560, direction: "bottom" },
+    { x: CX + 280, y: CY + 560, direction: "bottom" },
+  ];
+  const anchor = anchors[clusterIndex % anchors.length];
+  if (clusterIndex < anchors.length) return anchor;
+  const extra = clusterIndex - anchors.length;
+  const ring = Math.floor(extra / anchors.length) + 1;
+  return { ...anchor, x: anchor.x + ring * 170, y: anchor.y + ring * 130 };
+}
+
+function childSlot(anchor: ClusterAnchor, childIndex: number, childCount: number): { x: number; y: number } {
+  const spacing = 190;
+  if (anchor.direction === "left" || anchor.direction === "right") {
+    const sign = anchor.direction === "left" ? -1 : 1;
+    const columns = childCount >= 4 ? 2 : 1;
+    const rows = Math.ceil(childCount / columns);
+    const col = childIndex % columns;
+    const row = Math.floor(childIndex / columns);
+    return {
+      x: anchor.x + sign * 180 - sign * col * 306,
+      y: anchor.y + (row - (rows - 1) / 2) * spacing,
+    };
+  }
+
+  const sign = anchor.direction === "top" ? -1 : 1;
+  const columns = Math.min(3, childCount);
+  const rows = Math.ceil(childCount / columns);
+  const col = childIndex % columns;
+  const row = Math.floor(childIndex / columns);
+  return {
+    x: anchor.x + (col - (columns - 1) / 2) * 306,
+    y: anchor.y + sign * (260 + row * spacing),
+  };
+}
+
+function flatSlot(anchor: ClusterAnchor, nodeIndex: number, totalInCluster: number): { x: number; y: number } {
+  const columns = totalInCluster >= 4 ? 2 : 1;
+  const rows = Math.ceil(totalInCluster / columns);
+  const col = nodeIndex % columns;
+  const row = Math.floor(nodeIndex / columns);
+  const xSpacing = 306;
+  const ySpacing = 190;
+  return {
+    x: anchor.x + (col - (columns - 1) / 2) * xSpacing,
+    y: anchor.y + (row - (rows - 1) / 2) * ySpacing,
+  };
+}
+
+function hasExplicitPosition(node: MapNode): node is MapNode & { x: number; y: number } {
+  if (typeof node.x !== "number" || typeof node.y !== "number") return false;
+  return !samePosition(node.x, 500) || !samePosition(node.y, 280);
+}
+
+function samePosition(left: unknown, right: number): boolean {
+  return typeof left === "number" && Number.isFinite(left) && Math.abs(left - right) < 0.5;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function nodeEdgePath(root: PositionedNode, target: PositionedNode): string {

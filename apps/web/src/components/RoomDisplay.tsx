@@ -118,6 +118,7 @@ function CanvasLayout({ room, onToast }: { room: SignalRoomSnapshot; onToast: (m
           onFocusNode={focusNode}
           onClearFocus={actions.clearFocusNode}
           onCursorMove={actions.moveCursor}
+          onMoveNode={actions.moveMapNode}
         />
       </div>
 

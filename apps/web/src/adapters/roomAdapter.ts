@@ -20,6 +20,7 @@ export interface SignalRoomActions {
   addTranscriptChunk: (text: string) => Promise<boolean>;
   redirectAgent: (text: string) => void;
   updateMapNode: (nodeId: string, patch: { title?: string; summary?: string }) => Promise<boolean>;
+  moveMapNode: (nodeId: string, x: number, y: number) => Promise<boolean>;
   moveCursor: (x: number, y: number) => void;
 }
 
@@ -325,6 +326,18 @@ export function useRoomState(): SignalRoomSnapshot {
     [live]
   );
 
+  const moveMapNode = useCallback(
+    async (nodeId: string, x: number, y: number) => {
+      try {
+        return await live.updateMapNode(nodeId, { x, y });
+      } catch (error: unknown) {
+        console.error("Unable to move map node", error);
+        return false;
+      }
+    },
+    [live]
+  );
+
   const moveCursor = useCallback(
     (x: number, y: number) => {
       live.moveCursor(x, y);
@@ -342,6 +355,7 @@ export function useRoomState(): SignalRoomSnapshot {
       addTranscriptChunk,
       redirectAgent,
       updateMapNode,
+      moveMapNode,
       moveCursor,
     }),
     [
@@ -349,6 +363,7 @@ export function useRoomState(): SignalRoomSnapshot {
       addSharedNote,
       addTranscriptChunk,
       clearFocusNode,
+      moveMapNode,
       moveCursor,
       redirectAgent,
       setDisplayName,

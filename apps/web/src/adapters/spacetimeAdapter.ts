@@ -81,7 +81,7 @@ export interface SpacetimeLiveBridge {
   addSharedNote: (body: string, nodeId?: string, sourceDisplayName?: string) => Promise<boolean>;
   addTranscriptChunk: (text: string, source?: string) => Promise<boolean>;
   createAgentTask: (instructions: string, nodeId?: string) => Promise<boolean>;
-  updateMapNode: (nodeId: string, patch: { title?: string; summary?: string }) => Promise<boolean>;
+  updateMapNode: (nodeId: string, patch: { title?: string; summary?: string; x?: number; y?: number }) => Promise<boolean>;
   setRoomFocus: (nodeId: string, label: string) => Promise<boolean>;
   clearRoomFocus: () => Promise<boolean>;
   upsertParticipant: (
@@ -744,7 +744,7 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
       });
       return true;
     },
-    updateMapNode: async (nodeId: string, patch: { title?: string; summary?: string }) => {
+    updateMapNode: async (nodeId: string, patch: { title?: string; summary?: string; x?: number; y?: number }) => {
       if (!conn || !connectionState.isActive || roomId === undefined) return false;
       const dbNodeId = nodeIdFromUi(nodeId);
       if (dbNodeId === undefined) return false;
@@ -755,8 +755,8 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
         nodeType: undefined,
         source: undefined,
         urgency: undefined,
-        x: undefined,
-        y: undefined,
+        x: patch.x,
+        y: patch.y,
       });
       return true;
     },

@@ -191,7 +191,8 @@ async function addMapSignal(
     }));
 
   if (root.id !== node.id) {
-    await createEdge(database, roomId, root, node, kind === "topic_shift" ? "topic shift" : kind);
+    const parent = await ensureSemanticParent(database, roomId, nodes, root, node, { title, summary, kind });
+    await createEdge(database, roomId, parent, node, kind === "topic_shift" ? "topic shift" : kind);
   }
 
   const question = cleanOptionalString(args.question, 180);
@@ -425,6 +426,66 @@ async function createNode(
     ])
   );
   return resolveNodeByTitle(database, roomId, input.title);
+}
+
+async function ensureSemanticParent(
+  database: string,
+  roomId: bigint,
+  nodes: NodeRef[],
+  root: NodeRef,
+  node: NodeRef,
+  signal: { title: string; summary: string; kind: string }
+): Promise<NodeRef> {
+  const group = semanticGroupForSignal(signal.title, signal.summary);
+  if (!group || signal.kind === "topic" || signal.kind === "topic_shift") return root;
+
+  const normalizedGroupTitle = normalizeComparableText(group.title);
+  if (normalizeComparableText(node.title) === normalizedGroupTitle) return root;
+  const existing = nodes.find((candidate) => {
+    if (candidate.id === node.id) return false;
+    if (candidate.nodeType !== "branch" && normalizeComparableText(candidate.title) !== normalizedGroupTitle) return false;
+    return semanticGroupForSignal(candidate.title, candidate.summary)?.title === group.title;
+  });
+  if (existing) return existing;
+
+  const parent = await createNode(database, roomId, {
+    title: group.title,
+    summary: group.summary,
+    nodeType: "branch",
+    source: "Realtime operator",
+    urgency: "normal",
+    x: 500,
+    y: 280,
+  });
+  nodes.push(parent);
+  await createEdge(database, roomId, root, parent, group.label);
+  return parent;
+}
+
+function semanticGroupForSignal(title: string, summary: string): { title: string; summary: string; label: string } | undefined {
+  const text = normalizeComparableText(`${title} ${summary}`);
+  if (/\b(?:environments?|school|high school|stuyvesant|classmate|friend|peer|teacher|upbringing|education)\b/.test(text)) {
+    return {
+      title: "Environment and upbringing",
+      summary: "School, peers, family setting, and other surrounding conditions that may shape the outcome.",
+      label: "environment",
+    };
+  }
+  if (/\b(?:genetic|gene|inherited|parent|sibling|family|cousin|aunt|relative)\b/.test(text)) {
+    return {
+      title: "Genetics and family background",
+      summary: "Inherited traits and family patterns that may explain part of the outcome.",
+      label: "genetics",
+    };
+  }
+  if (/\b(?:hard work|effort|practice|discipline|studying|study habit|work ethic|motivation)\b/.test(text)) {
+    return {
+      title: "Effort and work habits",
+      summary: "Practice, discipline, and repeated effort as a separate explanation path.",
+      label: "effort",
+    };
+  }
+  return undefined;
 }
 
 async function updateNode(
