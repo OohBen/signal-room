@@ -2,15 +2,17 @@
 
 ## Goal
 
-Show a fresh room proving instant multi-client sync, then filling live from conversation into shared map state.
+Show a live meeting copilot: it listens to the conversation and builds a shared mind map, anyone can say "Hey agent" to get a quick researched answer, and important findings surface as glanceable cards for the whole room — all on SpacetimeDB, proving instant multi-client sync.
 
 The judge should see:
 
 - An empty SpacetimeDB room.
 - A second window: live cursors moving on the shared map and a presence avatar appearing.
-- A host transcript chunk added live.
+- A host transcript chunk added live, turning conversation into map nodes.
+- A "Hey agent, ..." question answered quickly as a "You asked" card in the Live Signals panel.
 - An agent swarm coordinating through the database, not interrupting the room.
 - Map nodes, real labeled edges, questions, tasks, and findings appearing without reload.
+- The Live Signals panel surfacing the most important answers/findings for the room to glance at.
 - The same room available to participant laptops.
 
 ## Local Services
@@ -115,7 +117,8 @@ JUDGE SEES:
 
 - Map nodes derived live from the routed conversation.
 - Real labeled edges drawn between connected nodes (the canvas reads the `map_edge` table, not a faked layout).
-- An Important finding in the right rail.
+- The Live Signals panel (right rail, shown by default) surfacing the room's important cards: the "Hey agent" question appears as a `You asked` answer card with a verdict and clickable sources, and urgent findings appear as `Important` cards — newest and most urgent first, so anyone in the meeting can glance and catch up.
+- Clicking a node drills into its inspector; the `Signals` button returns to the room-wide view.
 
 ### [1:45] Human Quiet Backchannel
 

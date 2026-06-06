@@ -88,6 +88,18 @@ export interface QueueItem {
   chips: Chip[];
 }
 
+export type SignalKind = "answer" | "important" | "finding";
+
+export interface RoomSignal {
+  id: string;
+  kind: SignalKind;
+  title: string;
+  body: string;
+  sources: Chip[];
+  connectedNodeId?: string;
+  connectedNodeTitle: string;
+}
+
 export interface RoomEvent {
   id: string;
   text: string;
@@ -169,6 +181,7 @@ export interface SignalRoomState {
   presence: PresencePin[];
   cursors: CursorPin[];
   workers: AgentWorker[];
+  signals: RoomSignal[];
   roomEvents: RoomEvent[];
   queueItems: QueueItem[];
   transcript: TranscriptUtterance[];

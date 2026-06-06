@@ -26,6 +26,7 @@ import type {
   PresencePin,
   QueueItem,
   RoomEvent,
+  RoomSignal,
   SharedNote,
   TopicChunk,
   TranscriptUtterance,
@@ -68,6 +69,7 @@ export interface SpacetimeLiveBridge {
   presence: PresencePin[];
   cursors: CursorPin[];
   workers: AgentWorker[];
+  signals: RoomSignal[];
   sharedNotes: SharedNote[];
   queueItems: QueueItem[];
   transcript: TranscriptUtterance[];
@@ -294,6 +296,28 @@ function parseSourceChips(linksJson: string): QueueItem["chips"] {
 function truncateLabel(label: string, maxLength: number): string {
   const clean = label.trim().replace(/\s+/g, " ");
   return clean.length <= maxLength ? clean : `${clean.slice(0, maxLength - 1)}...`;
+}
+
+function mapSignal(row: DbFinding, nodeById: Map<string, DbMapNode>): RoomSignal {
+  const node = row.nodeId === undefined ? undefined : nodeById.get(rowId(row.nodeId));
+  const isAnswer = node?.nodeType === "human_question" || node?.nodeType === "question";
+  const kind: RoomSignal["kind"] = isAnswer ? "answer" : row.urgency === "high" ? "important" : "finding";
+  return {
+    id: `db-signal-${rowId(row.findingId)}`,
+    kind,
+    // Answer cards headline with the question that was asked, not the research directive.
+    title: isAnswer && node ? node.title : row.title,
+    body: row.summary,
+    sources: parseSourceChips(row.linksJson),
+    connectedNodeId: row.nodeId === undefined ? undefined : nodeUiId(row.nodeId),
+    connectedNodeTitle: connectedNodeName(row.nodeId, nodeById),
+  };
+}
+
+function signalRank(kind: RoomSignal["kind"]): number {
+  if (kind === "answer") return 0;
+  if (kind === "important") return 1;
+  return 2;
 }
 
 function mapTask(row: DbAgentTask, nodeById: Map<string, DbMapNode>): QueueItem {
@@ -637,6 +661,10 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
     workers: sortNewest(roomRows.workers, (row) => row.updatedAt).map((worker) =>
       mapWorker(worker, nodeById)
     ),
+    signals: sortNewest(roomRows.findings, (row) => row.createdAt)
+      .map((finding) => mapSignal(finding, nodeById))
+      .sort((a, b) => signalRank(a.kind) - signalRank(b.kind))
+      .slice(0, 8),
     sharedNotes: sortNewest(roomRows.notes, (row) => row.createdAt)
       .slice(0, 8)
       .map((note) => mapSharedNote(note, nodeById)),

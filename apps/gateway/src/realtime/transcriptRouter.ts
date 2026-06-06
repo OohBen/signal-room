@@ -100,7 +100,7 @@ function buildSystemPrompt(): string {
     "The root is the center of the map. Topics are only meaningful branches under that center.",
     "Use specific titles like 'NVIDIA Q4 2026 outlook' or 'Oil price shock path', never vague titles like 'NVIDIA discussion', 'NVIDIA interest', 'Conversation summary', or 'Brief utterance'.",
     "If an idea is not researchable, preserve it as a summary/question and omit task.",
-    "If the transcript includes an explicit request like 'agent, look up...' or 'agent, what is...', create an Explicit agent request topic with a task matching that request.",
+    "If the transcript includes a DIRECT request to the agent (e.g. 'hey agent...', 'agent, look up...', 'agent, what is...', 'agent, can you check...'), this is a participant asking a quick question. Create exactly one topic for it with nodeType 'human_question', urgency 'high', title set to the question itself (concise), and task set to the precise thing to research to answer it. Direct questions are the highest priority.",
     "Return only JSON with this schema:",
     '{"rootTitle":"short topic title","rootSummary":"one sentence","topics":[{"key":"stable-slug","title":"short node title","summary":"one sentence","nodeType":"research|question|human_question|summary","source":"Router AI","urgency":"high|normal","x":500,"y":280,"edgeLabel":"short label","question":"optional passive question","task":"optional queued research task"}]}',
     "Use at most 5 topics. Keep titles under 56 characters. Keep summaries under 180 characters.",

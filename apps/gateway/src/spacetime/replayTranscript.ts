@@ -169,13 +169,18 @@ export async function replayTranscript(options: ReplayTranscriptOptions): Promis
     if (topic.task) {
       const exists = await taskExists(database, roomId, topic.task);
       if (!exists) {
+        // A direct question to the agent gets the fast research lane and top priority,
+        // so "hey agent" answers come back quickly and surface above background research.
+        const isDirectQuestion = topic.nodeType === "human_question";
+        const taskType = isDirectQuestion ? "quick_research" : "research";
+        const priority = isDirectQuestion ? "3" : topic.urgency === "high" ? "2" : "1";
         await ensureOk(
           await callReducer(database, "create_agent_task", [
             roomId.toString(),
             optionU64(node.id),
-            jsonString("research"),
+            jsonString(taskType),
             jsonString(topic.task),
-            topic.urgency === "high" ? "2" : "1",
+            priority,
           ])
         );
         steps.push({ name: "agent_task_queued", created: node.id.toString(), note: topic.task });

@@ -2,7 +2,7 @@
 
 ## One-Liner
 
-Signal Room is a live human-agent research room where SpacetimeDB is the entire backend. Humans and AI agents are both SpacetimeDB clients that write through the same reducers, so a group's conversation, notes, questions, and agent research become one shared map that updates for every browser in real time.
+Signal Room is a live meeting copilot built entirely on SpacetimeDB. It listens to a meeting and turns the conversation into a shared mind map in real time; anyone can say "Hey agent, ..." to get a quick researched answer; and important findings surface as glanceable cards the whole room sees. Humans and AI agents are both SpacetimeDB clients that write through the same reducers, so every browser stays in sync instantly.
 
 ## Problem
 

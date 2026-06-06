@@ -2435,3 +2435,183 @@ textarea:focus {
   stroke: color-mix(in srgb, var(--bg) 85%, transparent);
   stroke-width: 4px;
 }
+
+/* ============================================================
+   Live Signals panel — the room-wide research cards
+   ============================================================ */
+.signals-lead {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.signals-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 18px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 14px;
+  background: var(--panel-2);
+  color: var(--muted);
+}
+
+.signals-empty svg {
+  color: var(--accent);
+}
+
+.signals-empty h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.signals-empty p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.signals-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.signal-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-sm);
+}
+
+.signal-card.answer {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--blue-bg) 55%, var(--panel-solid));
+}
+
+.signal-card.important {
+  border-left-color: var(--red);
+}
+
+.signal-card.finding {
+  border-left-color: var(--green);
+}
+
+.signal-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.signal-top .sp {
+  flex: 1;
+}
+
+.signal-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.signal-badge.answer {
+  color: var(--accent);
+  background: var(--blue-bg);
+}
+
+.signal-badge.important {
+  color: var(--red);
+  background: var(--red-bg);
+}
+
+.signal-badge.finding {
+  color: var(--green);
+  background: var(--green-bg);
+}
+
+.signal-on {
+  max-width: 48%;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.signal-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.signal-body {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.signal-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.signal-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--ink-2);
+  font-size: 11px;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.signal-source:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.back-to-signals {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+  padding: 4px 9px 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--ink-2);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.back-to-signals:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}

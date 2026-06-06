@@ -1,8 +1,9 @@
-import { ArrowRight, Check, ChevronRight, Send, Sparkles, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ChevronRight, Send, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { SignalRoomSnapshot } from "../adapters/roomAdapter";
 import type { AgentWorker, MapNode, PresencePin, WorkspaceLayout } from "../types/signalRoom";
 import { Avatar, Chip, ChipRow } from "./Primitives";
+import { LiveSignals } from "./LiveSignals";
 import { RoomMap } from "./RoomMap";
 
 interface RoomDisplayProps {
@@ -23,6 +24,7 @@ export function RoomDisplay({ room, layout, onLayoutChange, onToast }: RoomDispl
 function CanvasLayout({ room, onToast }: { room: SignalRoomSnapshot; onToast: (message: string) => void }) {
   const { state, focusedNode, focusNodeId, actions } = room;
   const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [railView, setRailView] = useState<"signals" | "node">("signals");
   const insetRight = inspectorOpen ? 440 : 0;
 
   const researchingNodeIds = useMemo(
@@ -38,6 +40,12 @@ function CanvasLayout({ room, onToast }: { room: SignalRoomSnapshot; onToast: (m
 
   function focusNode(nodeId: string) {
     actions.setFocusNode(nodeId);
+    setRailView("node");
+    setInspectorOpen(true);
+  }
+
+  function openSignals() {
+    setRailView("signals");
     setInspectorOpen(true);
   }
 
@@ -78,19 +86,30 @@ function CanvasLayout({ room, onToast }: { room: SignalRoomSnapshot; onToast: (m
 
       {inspectorOpen ? (
         <div className="inspector-shell">
-          <InspectorPanel
-            room={room}
-            node={focusedNode}
-            onClose={() => setInspectorOpen(false)}
-            onHide={() => setInspectorOpen(false)}
-            onJump={focusNode}
-            onToast={onToast}
-          />
+          {railView === "signals" ? (
+            <LiveSignals
+              signals={state.signals}
+              activeAgents={activeWorkers.length}
+              onOpenNode={focusNode}
+              onClose={() => setInspectorOpen(false)}
+              onHide={() => setInspectorOpen(false)}
+            />
+          ) : (
+            <InspectorPanel
+              room={room}
+              node={focusedNode}
+              onClose={() => setInspectorOpen(false)}
+              onHide={() => setInspectorOpen(false)}
+              onBackToSignals={openSignals}
+              onJump={focusNode}
+              onToast={onToast}
+            />
+          )}
         </div>
       ) : (
         <button className="reopen r-right" type="button" onClick={() => setInspectorOpen(true)}>
           <span className="led" />
-          Synthesis · {state.queueItems.length} waiting
+          {railView === "signals" ? `Live signals · ${state.signals.length}` : "Node detail"}
         </button>
       )}
     </section>
@@ -102,6 +121,7 @@ function InspectorPanel({
   node,
   onClose,
   onHide,
+  onBackToSignals,
   onJump,
   onToast,
 }: {
@@ -109,6 +129,7 @@ function InspectorPanel({
   node: MapNode;
   onClose: () => void;
   onHide: () => void;
+  onBackToSignals: () => void;
   onJump: (nodeId: string) => void;
   onToast: (message: string) => void;
 }) {
@@ -159,6 +180,10 @@ function InspectorPanel({
   return (
     <aside className="panel right">
       <div className="panel-head">
+        <button className="back-to-signals" type="button" onClick={onBackToSignals} title="Back to live signals">
+          <ArrowLeft size={15} strokeWidth={2.1} />
+          Signals
+        </button>
         {isEmpty ? <Sparkles size={15} strokeWidth={2.1} /> : <Avatar initial={node.ownerInitial} kind={node.ownerKind} />}
         <span className="t">{isEmpty ? "Room synthesis" : node.focus.type}</span>
         <span className="sp" />
