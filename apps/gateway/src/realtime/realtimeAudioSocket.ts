@@ -254,14 +254,11 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
       handleRealtimeEvent(event as unknown as { type?: string; [key: string]: unknown }, transcriptionModel);
     });
     realtime.on("error", (error) => {
-      logRealtime("upstream_error", { roomCode: roomContext.roomCode, message: error.message });
-      if (
-        closeAfterNextTranscript &&
-        (error.message.includes("buffer too small") || error.message.includes("commit_empty"))
-      ) {
-        closeRealtime();
+      if (isExpectedStopCommitError(error.message)) {
+        closeRealtimeIfIdle();
         return;
       }
+      logRealtime("upstream_error", { roomCode: roomContext.roomCode, message: error.message });
       writeClient(clientSocket, {
         ok: false,
         type: "error",
@@ -345,9 +342,7 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
             message: error instanceof Error ? error.message : "Realtime room operator failed",
           });
         }).finally(() => {
-          if (closeAfterNextTranscript && !operatorRunning && pendingToolCalls === 0 && !queuedOperatorTranscript) {
-            closeRealtime();
-          }
+          if (closeAfterNextTranscript) closeRealtimeIfIdle();
         });
       }
       if (closeAfterNextTranscript && !text) {
@@ -377,7 +372,7 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
       transcriptionPending = false;
       if (error?.message?.includes("buffer too small") || error?.message?.includes("commit_empty")) {
         if (closeAfterNextTranscript) {
-          closeRealtime();
+          closeRealtimeIfIdle();
         }
         return;
       }
@@ -579,6 +574,16 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
     if (closeAfterNextTranscript && pendingToolCalls === 0) {
       closeRealtime();
     }
+  }
+
+  function closeRealtimeIfIdle(): void {
+    if (!operatorRunning && pendingToolCalls === 0 && !queuedOperatorTranscript) {
+      closeRealtime();
+    }
+  }
+
+  function isExpectedStopCommitError(message: string): boolean {
+    return closeAfterNextTranscript && (message.includes("buffer too small") || message.includes("commit_empty"));
   }
 
   function closeRealtime(): void {
