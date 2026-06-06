@@ -35,7 +35,7 @@ export interface ResearchTaskOutput {
   connectedNode: ConnectedNode;
   urgency: Urgency;
   suggestedMapUpdate: SuggestedMapUpdate;
-  provider: "exa" | "exa_answer" | "mock";
+  provider: "exa" | "exa_answer";
   mode: ResearchSearchMode;
   completedAt: string;
 }

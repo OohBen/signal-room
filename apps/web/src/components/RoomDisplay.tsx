@@ -1,7 +1,7 @@
 import { ArrowRight, Check, ChevronRight, Send, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { SignalRoomSnapshot } from "../adapters/roomAdapter";
-import type { MapNode, WorkspaceLayout } from "../types/signalRoom";
+import type { AgentWorker, MapNode, PresencePin, WorkspaceLayout } from "../types/signalRoom";
 import { Avatar, Chip, ChipRow } from "./Primitives";
 import { RoomMap } from "./RoomMap";
 
@@ -25,6 +25,17 @@ function CanvasLayout({ room, onToast }: { room: SignalRoomSnapshot; onToast: (m
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const insetRight = inspectorOpen ? 440 : 0;
 
+  const researchingNodeIds = useMemo(
+    () =>
+      new Set(
+        state.workers
+          .filter((worker) => worker.active && worker.currentNodeId)
+          .map((worker) => worker.currentNodeId as string)
+      ),
+    [state.workers]
+  );
+  const activeWorkers = state.workers.filter((worker) => worker.active);
+
   function focusNode(nodeId: string) {
     actions.setFocusNode(nodeId);
     setInspectorOpen(true);
@@ -41,6 +52,8 @@ function CanvasLayout({ room, onToast }: { room: SignalRoomSnapshot; onToast: (m
           <b>{state.queueItems.length}</b>
           <span>agent items</span>
         </div>
+        <PresenceStack presence={state.presence} />
+        <SwarmStrip workers={state.workers} activeCount={activeWorkers.length} />
         <div className="canvas-legend" aria-label="Node states">
           <span><i className="state-dot listening" />Listening</span>
           <span><i className="state-dot checking" />Checking</span>
@@ -51,11 +64,15 @@ function CanvasLayout({ room, onToast }: { room: SignalRoomSnapshot; onToast: (m
       <div className="map-wrap full" style={{ right: insetRight }}>
         <RoomMap
           nodes={state.mapNodes}
+          edges={state.mapEdges}
           presence={state.presence}
+          cursors={state.cursors}
           focusedNodeId={focusNodeId}
+          researchingNodeIds={researchingNodeIds}
           insetRight={0}
           onFocusNode={focusNode}
           onClearFocus={actions.clearFocusNode}
+          onCursorMove={actions.moveCursor}
         />
       </div>
 
@@ -446,6 +463,51 @@ function BriefingLayout({
         </div>
       </div>
     </section>
+  );
+}
+
+function PresenceStack({ presence }: { presence: PresencePin[] }) {
+  if (presence.length === 0) return null;
+  const shown = presence.slice(0, 6);
+  const overflow = presence.length - shown.length;
+
+  return (
+    <div className="presence-stack" aria-label={`${presence.length} people in room`}>
+      {shown.map((person) => (
+        <span
+          className={`presence-dot${person.isSelf ? " self" : ""}`}
+          key={person.id}
+          style={{ backgroundColor: person.color }}
+          title={`${person.label}${person.isSelf ? " (you)" : ""} · ${person.viewing}`}
+        >
+          {person.initial}
+        </span>
+      ))}
+      {overflow > 0 ? <span className="presence-dot more">+{overflow}</span> : null}
+      <span className="presence-count">{presence.length} here</span>
+    </div>
+  );
+}
+
+function SwarmStrip({ workers, activeCount }: { workers: AgentWorker[]; activeCount: number }) {
+  if (workers.length === 0) return null;
+
+  return (
+    <div className="swarm-strip" aria-label="Agent swarm">
+      <span className="swarm-label">
+        <i className={`swarm-led${activeCount ? " on" : ""}`} />
+        {activeCount ? `${activeCount} agent${activeCount === 1 ? "" : "s"} working` : "Agents idle"}
+      </span>
+      <div className="swarm-chips">
+        {workers.slice(0, 5).map((worker) => (
+          <span className={`swarm-chip${worker.active ? " active" : ""}`} key={worker.id} title={worker.detail}>
+            <i className="swarm-chip-dot" />
+            <b>{worker.name}</b>
+            <span>{worker.status}</span>
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 

@@ -119,45 +119,6 @@ function normalizeAnswer(answer: string | Record<string, unknown>): string {
   return JSON.stringify(answer);
 }
 
-class MockExaResearchClient implements ResearchClient {
-  async search(input: ResearchSearchInput): Promise<ResearchSearchResult> {
-    const encodedQuery = encodeURIComponent(input.query.toLowerCase().replace(/\s+/g, "-"));
-    return {
-      provider: "mock",
-      mode: input.mode ?? "quick",
-      query: input.query,
-      answer: `Mock research fallback used for "${input.query}".`,
-      sources: [
-        {
-          title: `Mock source for ${input.query}`,
-          url: `https://example.test/research/${encodedQuery}`,
-          text: "Mock research fallback used because EXA_API_KEY was not present or mock mode was requested.",
-        },
-      ],
-    };
-  }
-}
-
-class FallbackResearchClient implements ResearchClient {
-  constructor(
-    private readonly primary: ResearchClient,
-    private readonly fallback: ResearchClient
-  ) {}
-
-  async search(input: ResearchSearchInput): Promise<ResearchSearchResult> {
-    try {
-      return await this.primary.search(input);
-    } catch (error: unknown) {
-      console.warn(
-        error instanceof Error
-          ? `Exa search failed; falling back to mock research: ${error.message}`
-          : "Exa search failed; falling back to mock research"
-      );
-      return this.fallback.search(input);
-    }
-  }
-}
-
 interface ExaResult {
   title?: string | null;
   url?: string;

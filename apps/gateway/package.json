@@ -11,7 +11,7 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "dev": "pnpm build && node --enable-source-maps dist/index.js serve",
     "health": "pnpm build && node --enable-source-maps dist/index.js health",
-    "smoke": "pnpm build && node --enable-source-maps dist/index.js smoke --mock",
+    "smoke": "pnpm build && node --enable-source-maps dist/index.js smoke",
     "work-once": "pnpm build && node --enable-source-maps dist/index.js work-once"
   },
   "engines": {

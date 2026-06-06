@@ -8,17 +8,21 @@ import {
   type PointerEvent,
   type WheelEvent,
 } from "react";
-import type { MapNode, PresencePin } from "../types/signalRoom";
+import type { CursorPin, MapEdge, MapNode, PresencePin } from "../types/signalRoom";
 import { Avatar } from "./Primitives";
 
 interface RoomMapProps {
   nodes: MapNode[];
+  edges: MapEdge[];
   presence: PresencePin[];
+  cursors: CursorPin[];
   focusedNodeId: string;
+  researchingNodeIds?: ReadonlySet<string>;
   insetLeft?: number;
   insetRight?: number;
   onFocusNode: (nodeId: string) => void;
   onClearFocus?: () => void;
+  onCursorMove?: (x: number, y: number) => void;
 }
 
 interface PositionedNode {
@@ -48,20 +52,32 @@ const MAX_ZOOM = 2.4;
 
 export function RoomMap({
   nodes,
+  edges,
   presence,
+  cursors,
   focusedNodeId,
+  researchingNodeIds,
   insetLeft = 0,
   insetRight = 0,
   onFocusNode,
   onClearFocus,
+  onCursorMove,
 }: RoomMapProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const [zoom, setZoom] = useState(1);
   const mapLayout = layoutMapNodes(nodes);
   const layout = mapLayout.nodes;
-  const rootNode = layout.find((positioned) => positioned.node.isRoot) ?? layout[0];
   const hasSelection = layout.some((positioned) => positioned.node.id === focusedNodeId);
+  const positionById = new Map(layout.map((positioned) => [positioned.node.id, positioned]));
+  const drawnEdges = edges
+    .map((edge) => {
+      const from = positionById.get(edge.fromId);
+      const to = positionById.get(edge.toId);
+      if (!from || !to) return null;
+      return { edge, from, to };
+    })
+    .filter((value): value is { edge: MapEdge; from: PositionedNode; to: PositionedNode } => value !== null);
 
   const fit = useCallback(() => {
     const viewport = viewportRef.current;
@@ -100,6 +116,13 @@ export function RoomMap({
   }
 
   function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
+    if (onCursorMove) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const stageX = (event.currentTarget.scrollLeft + event.clientX - rect.left) / zoom;
+      const stageY = (event.currentTarget.scrollTop + event.clientY - rect.top) / zoom;
+      onCursorMove(stageX, stageY);
+    }
+
     const drag = dragRef.current;
     if (!drag) return;
 
@@ -177,34 +200,29 @@ export function RoomMap({
         </svg>
 
         <svg className="map-edges" width={STAGE_W} height={STAGE_H} viewBox={`0 0 ${STAGE_W} ${STAGE_H}`}>
-          {rootNode
-            ? layout
-                .filter((positioned) => positioned.node.id !== rootNode.node.id)
-                .map((positioned) => (
-                <path
-                  className={[
-                    "lit",
-                    focusedNodeId === positioned.node.id || focusedNodeId === rootNode.node.id ? "active" : "",
-                    hasSelection && focusedNodeId !== positioned.node.id && focusedNodeId !== rootNode.node.id ? "dim" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  d={nodeEdgePath(rootNode, positioned)}
-                  key={`${rootNode.node.id}-${positioned.node.id}`}
-                />
-              ))
-            : null}
+          {drawnEdges.map(({ edge, from, to }) => {
+            const active = focusedNodeId === edge.fromId || focusedNodeId === edge.toId;
+            const dim = hasSelection && !active;
+            const midX = (from.x + to.x) / 2;
+            const midY = (from.y + to.y) / 2;
+            return (
+              <g key={edge.id} className={["edge-group", active ? "active" : "", dim ? "dim" : ""].filter(Boolean).join(" ")}>
+                <path className="lit" d={nodeEdgePath(from, to)} />
+                {edge.label ? (
+                  <text className="edge-label" x={midX} y={midY} textAnchor="middle">
+                    {edge.label}
+                  </text>
+                ) : null}
+              </g>
+            );
+          })}
         </svg>
 
         {layout.map(({ node, x, y }) => (
           <MapNodeButton
-            dimmed={
-              hasSelection &&
-              focusedNodeId !== node.id &&
-              !node.isRoot &&
-              focusedNodeId !== rootNode?.node.id
-            }
+            dimmed={hasSelection && focusedNodeId !== node.id}
             focused={focusedNodeId === node.id}
+            researching={researchingNodeIds?.has(node.id) ?? false}
             key={node.id}
             node={node}
             x={x}
@@ -219,6 +237,23 @@ export function RoomMap({
             <p>Start the mic and the room will build the map live from transcript and Realtime tools.</p>
           </div>
         ) : null}
+
+        {cursors.map((cursor) => (
+          <div className="live-cursor" key={cursor.id} style={{ left: cursor.x, top: cursor.y }}>
+            <svg width="20" height="22" viewBox="0 0 20 22" fill="none" aria-hidden="true">
+              <path
+                d="M2 2 L2 17 L6.5 13 L9.5 19.5 L12 18.3 L9 12 L15 12 Z"
+                fill={cursor.color}
+                stroke="#fff"
+                strokeWidth="1.4"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <span className="live-cursor-label" style={{ backgroundColor: cursor.color }}>
+              {cursor.label}
+            </span>
+          </div>
+        ))}
       </div>
       </div>
 
@@ -241,6 +276,7 @@ export function RoomMap({
 function MapNodeButton({
   dimmed,
   focused,
+  researching,
   node,
   x,
   y,
@@ -248,16 +284,24 @@ function MapNodeButton({
 }: {
   dimmed: boolean;
   focused: boolean;
+  researching: boolean;
   node: MapNode;
   x: number;
   y: number;
   onFocusNode: (nodeId: string) => void;
 }) {
-  const status = statusForNode(node);
+  const status = researching ? { label: "Agent on it", tone: "checking" as const } : statusForNode(node);
 
   return (
     <button
-      className={["node-card", "positioned", node.isRoot ? "root" : "", focused ? "selected" : "", dimmed ? "dim" : ""]
+      className={[
+        "node-card",
+        "positioned",
+        node.isRoot ? "root" : "",
+        focused ? "selected" : "",
+        dimmed ? "dim" : "",
+        researching ? "researching" : "",
+      ]
         .filter(Boolean)
         .join(" ")}
       style={mapNodeStyle(x, y)}
@@ -265,6 +309,7 @@ function MapNodeButton({
       onClick={() => onFocusNode(node.id)}
     >
       {node.hasAlert ? <span className="alert-pin" aria-hidden="true" /> : null}
+      {researching ? <span className="research-ring" aria-hidden="true" /> : null}
       <div className="node-top">
         <Avatar initial={node.ownerInitial} kind={node.ownerKind} />
         <span className="node-type">{node.isRoot ? "root question" : node.focus.type}</span>

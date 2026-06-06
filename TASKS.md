@@ -31,9 +31,13 @@
 | S2-02 | doing | agent-c/main | Browser realtime voice session | gateway WebSocket carries audio into transcription/SpacetimeDB; true OpenAI Realtime/WebRTC session still optional |
 | S2-03 | done | main | Router writes model-routed state to SpacetimeDB | model router writes chunks, nodes, questions, and queued tasks |
 | S2-04 | todo | review | Router prompt/behavior review | no unsolicited speech |
-| S2-05 | doing | main | Agent task worker loop | `work-once`, `work-batch`, and `/work-room` claim and complete bounded task batches |
+| S2-05 | done | main | Agent task worker loop | delivered as the agent swarm: `runRoomSwarm` runs Scout/Analyst/Verifier through `/work-room`, writing `agent_worker` presence and findings |
+| S2-06 | done | main | Live multiplayer cursors + presence | `updateCursor`/`cursor` table render live cursors and a presence avatar stack across two windows |
+| S2-07 | done | main | Real map edges on canvas | canvas draws the `map_edge` table with labels between node positions |
 
 ## Decisions Log
+
+> Historical log. Earlier entries reference the seeded `DEMO` room, `live-fill`, and `POST /process-room`, all of which were later removed (see the 2026-06-06 stripping/swarm entries near the end). Kept as a record of decisions over time.
 
 | Date | Decision |
 | --- | --- |
@@ -73,6 +77,11 @@
 | 2026-06-06 | Host mic startup falls back to browser speech recognition if the gateway voice socket cannot open. |
 | 2026-06-06 | Fixed OpenAI 400 corrupt-audio failures by sending finalized browser recording segments and adding gateway ffmpeg remux retry. |
 | 2026-06-06 | Host capture routing now defaults on, transcript-only rooms auto-route into the map, and browser transcript timestamps no longer render as huge minute counters. |
+| 2026-06-06 | Stripped demo scaffolding: removed seeded `DEMO` room/`seedDemoRoom`, web `seedRoom.ts` and dead components, `mocks/`, adapter mirror fallbacks, gateway `live-fill`/`POST /process-room`/`liveFill.ts`/scripted fallback, the Exa->mock research fallback, and `--mock`. Research now requires `EXA_API_KEY` and fails fast. |
+| 2026-06-06 | Added live multiplayer cursors and presence via new `cursor` table and `updateCursor` reducer; cursors render on the shared canvas in stage coordinates with a presence avatar stack. |
+| 2026-06-06 | Canvas now draws real `map_edge` relationships with labels instead of faked hub-and-spoke edges. |
+| 2026-06-06 | Added a visible agent swarm: new `agent_worker` table and `upsertAgentWorker` reducer; `runRoomSwarm` runs up to 3 concurrent named workers (Scout/Analyst/Verifier) wired into `POST /work-room`, replacing the always-on background worker loop. |
+| 2026-06-06 | Republished the SpacetimeDB module to maincloud `signal-room` (20 reducers, incl. `updateCursor`/`upsertAgentWorker`); all of the above verified live against maincloud. |
 
 ## Current Open Risks
 

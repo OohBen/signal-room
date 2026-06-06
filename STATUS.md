@@ -6,6 +6,8 @@ Sprint 1 vertical slice.
 
 ## Done
 
+> Historical log. Some entries below describe commands/endpoints that were since removed (`live-fill`, `audio-replay`, `--mock`, `POST /process-room`, seeded `DEMO` room). The current surface is captured in the 2026-06-06 "Multiplayer + Agent Swarm" section; these older lines are kept only as a record.
+
 - Static mock created under `mocks/research-room/`.
 - Grilling complete enough to start.
 - `PLAN.md`, `SPECS.md`, and `TASKS.md` created.
@@ -63,6 +65,15 @@ Sprint 1 vertical slice.
 - Host capture now routes live transcript by default, and fresh transcript-only rooms auto-route existing transcript into map state when no nodes exist.
 - Transcript chunk timestamps now display `live` for epoch-based browser chunks instead of huge relative minute counters.
 
+## 2026-06-06: Multiplayer + Agent Swarm
+
+- Stripped demo scaffolding: removed the seeded `DEMO` room and `seedDemoRoom` reducer, the web `seedRoom.ts`, dead `RoomCopilot`/`AgentThread`/`TranscriptChunks` components, the `mocks/` folder, and the web adapter local-state mirror fallbacks. Removed the gateway `live-fill` CLI command, `POST /process-room` endpoint, `liveFill.ts`, the scripted deterministic fallback, the Exa->mock research fallback, and the `--mock` flag. Research now requires `EXA_API_KEY` and fails fast.
+- Added live multiplayer: new `cursor` table + `updateCursor` reducer drive cursors that render on the shared canvas in stage coordinates (broadcast on pointer-move, throttled ~55ms), plus a presence avatar stack (`N here`) in the canvas header.
+- Canvas now draws real `map_edge` relationships with labels between node positions instead of faked hub-and-spoke edges.
+- Added a visible agent swarm: new `agent_worker` table + `upsertAgentWorker` reducer; `apps/gateway/src/tasks/swarm.ts` `runRoomSwarm` runs up to 3 concurrent named workers (Scout, Analyst, Verifier) that drain the room's queued tasks, write live status to `agent_worker`, and write findings. Wired into `POST /work-room` (optional `workerCount` 1..6, capped at 3), auto-triggered by Host Mic. The always-on background worker loop was removed from `serve`. A swarm strip shows live worker status and nodes pulse `Agent on it` while being researched.
+- SpacetimeDB module republished to maincloud database `signal-room` (now 20 reducers, including `updateCursor` and `upsertAgentWorker`). All of the above verified live against maincloud on 2026-06-06.
+- Gateway CLI surface is now `serve`, `health`, `smoke`, `research`, `replay-transcript`, `work-once`, `work-batch`. HTTP surface is `GET /health`, `POST /replay-transcript`, `POST /work-room`, `WS /live-audio`.
+
 ## In Progress
 
 - Browser mic permission and in-room audio QA.
@@ -83,6 +94,8 @@ Sprint 1 vertical slice.
 - None proven yet.
 
 ## Latest Verification
+
+> Historical log. Some entries below reference commands and endpoints that were since removed (`live-fill`, `audio-replay`, `--mock`, `POST /process-room`, the scripted fallback). See the 2026-06-06 "Multiplayer + Agent Swarm" section above for the current surface; these older lines are kept only as a record of past verification.
 
 - `pnpm check`
 - `pnpm build`

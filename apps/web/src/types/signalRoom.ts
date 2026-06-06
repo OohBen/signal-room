@@ -45,14 +45,39 @@ export interface MapNode {
 
 export interface MapEdge {
   id: string;
-  path: string;
+  fromId: string;
+  toId: string;
+  label: string;
 }
 
 export interface PresencePin {
   id: string;
   label: string;
-  positionClass: string;
-  tone: "blue" | "green";
+  initial: string;
+  color: string;
+  viewing: string;
+  isSelf: boolean;
+}
+
+export interface CursorPin {
+  id: string;
+  label: string;
+  initial: string;
+  x: number;
+  y: number;
+  color: string;
+  isSelf: boolean;
+}
+
+export interface AgentWorker {
+  id: string;
+  name: string;
+  persona: string;
+  status: string;
+  detail: string;
+  currentNodeId?: string;
+  completedCount: number;
+  active: boolean;
 }
 
 export interface QueueItem {
@@ -142,6 +167,8 @@ export interface SignalRoomState {
   mapNodes: MapNode[];
   mapEdges: MapEdge[];
   presence: PresencePin[];
+  cursors: CursorPin[];
+  workers: AgentWorker[];
   roomEvents: RoomEvent[];
   queueItems: QueueItem[];
   transcript: TranscriptUtterance[];

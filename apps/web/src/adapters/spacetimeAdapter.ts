@@ -4,6 +4,8 @@ import { SPACETIME_DATABASE, SPACETIME_TOKEN_KEY, SPACETIME_URI } from "../confi
 import { DbConnection, tables } from "../module_bindings";
 import type {
   AgentTask as DbAgentTask,
+  AgentWorker as DbAgentWorker,
+  Cursor as DbCursor,
   Finding as DbFinding,
   MapEdge as DbMapEdge,
   MapNode as DbMapNode,
@@ -17,6 +19,8 @@ import type {
 } from "../module_bindings/types";
 import type {
   AgentStatus,
+  AgentWorker,
+  CursorPin,
   MapEdge,
   MapNode,
   PresencePin,
@@ -28,7 +32,7 @@ import type {
 } from "../types/signalRoom";
 
 export interface SpacetimeAdapterStatus {
-  mode: "seeded-local" | "bindings-ready" | "spacetime";
+  mode: "bindings-ready" | "spacetime";
   reason: string;
   isActive: boolean;
   isReady: boolean;
@@ -62,6 +66,8 @@ export interface SpacetimeLiveBridge {
   mapNodes: MapNode[];
   mapEdges: MapEdge[];
   presence: PresencePin[];
+  cursors: CursorPin[];
+  workers: AgentWorker[];
   sharedNotes: SharedNote[];
   queueItems: QueueItem[];
   transcript: TranscriptUtterance[];
@@ -79,6 +85,7 @@ export interface SpacetimeLiveBridge {
     status: string,
     cursorNodeId?: string
   ) => Promise<boolean>;
+  moveCursor: (x: number, y: number) => void;
 }
 
 export function getRequestedRoomCode(): string {
@@ -138,8 +145,16 @@ function initialFromName(name: string): string {
 function sourceKind(source: string): "agent" | "human" | "warn" {
   const lower = source.toLowerCase();
   if (lower.includes("deep") || lower.includes("alert")) return "warn";
-  if (lower.includes("ai") || lower.includes("seed") || lower.includes("agent")) return "agent";
+  if (lower.includes("ai") || lower.includes("agent") || lower.includes("research")) return "agent";
   return "human";
+}
+
+function colorForKey(key: string): string {
+  let hash = 0;
+  for (let index = 0; index < key.length; index += 1) {
+    hash = (hash * 31 + key.charCodeAt(index)) >>> 0;
+  }
+  return `hsl(${hash % 360} 72% 52%)`;
 }
 
 function impactForUrgency(urgency: string): Pick<MapNode, "impact" | "impactTone" | "hasAlert"> {
@@ -185,22 +200,16 @@ function mapDbNode(row: DbMapNode): MapNode {
   };
 }
 
-function edgePath(from: DbMapNode | undefined, to: DbMapNode | undefined): string {
-  if (!from || !to) return "";
-
-  const fromX = from.x;
-  const fromY = from.y;
-  const toX = to.x;
-  const toY = to.y;
-  const midX = (fromX + toX) / 2;
-
-  return `M${fromX} ${fromY} C${midX} ${fromY} ${midX} ${toY} ${toX} ${toY}`;
-}
-
 function mapDbEdge(edge: DbMapEdge, nodeById: Map<string, DbMapNode>): MapEdge | undefined {
-  const path = edgePath(nodeById.get(rowId(edge.fromNodeId)), nodeById.get(rowId(edge.toNodeId)));
-  if (!path) return undefined;
-  return { id: `db-edge-${rowId(edge.edgeId)}`, path };
+  const from = nodeById.get(rowId(edge.fromNodeId));
+  const to = nodeById.get(rowId(edge.toNodeId));
+  if (!from || !to) return undefined;
+  return {
+    id: `db-edge-${rowId(edge.edgeId)}`,
+    fromId: nodeUiId(edge.fromNodeId),
+    toId: nodeUiId(edge.toNodeId),
+    label: edge.label,
+  };
 }
 
 function connectedNodeName(nodeId: bigint | undefined, nodeById: Map<string, DbMapNode>): string {
@@ -353,13 +362,45 @@ function mapRoomEvent(row: DbRoomEvent): RoomEvent {
   };
 }
 
-function mapPresence(row: DbParticipant, index: number, nodeById: Map<string, DbMapNode>): PresencePin {
-  const node = connectedNodeName(row.cursorNodeId, nodeById).toLowerCase();
+function mapPresence(row: DbParticipant, selfHex: string, nodeById: Map<string, DbMapNode>): PresencePin {
+  const idHex = row.identity.toHexString();
+  const viewing = connectedNodeName(row.cursorNodeId, nodeById);
   return {
     id: `db-participant-${rowId(row.participantId)}`,
-    label: `${row.displayName} ${node === "room" ? "in room" : `viewing ${node}`}`,
-    positionClass: index % 2 === 0 ? "p1" : "p2",
-    tone: index % 2 === 0 ? "blue" : "green",
+    label: row.displayName,
+    initial: initialFromName(row.displayName),
+    color: colorForKey(idHex),
+    viewing: viewing === "Room" ? "in room" : `viewing ${viewing}`,
+    isSelf: idHex === selfHex,
+  };
+}
+
+function mapCursor(row: DbCursor, selfHex: string): CursorPin {
+  const idHex = row.identity.toHexString();
+  return {
+    id: `db-cursor-${rowId(row.cursorId)}`,
+    label: row.displayName,
+    initial: initialFromName(row.displayName),
+    x: row.x,
+    y: row.y,
+    color: colorForKey(idHex),
+    isSelf: idHex === selfHex,
+  };
+}
+
+function mapWorker(row: DbAgentWorker, nodeById: Map<string, DbMapNode>): AgentWorker {
+  return {
+    id: `db-worker-${rowId(row.workerId)}`,
+    name: row.name,
+    persona: row.persona,
+    status: row.status,
+    detail: row.detail,
+    currentNodeId:
+      row.currentNodeId === undefined || nodeById.get(rowId(row.currentNodeId)) === undefined
+        ? undefined
+        : nodeUiId(row.currentNodeId),
+    completedCount: row.completedCount,
+    active: row.status !== "idle" && row.status !== "done",
   };
 }
 
@@ -393,8 +434,9 @@ function mapAgentStatus(tasks: readonly DbAgentTask[], findings: readonly DbFind
 export function useSpacetimeLiveBridge(displayName: string, roomCode: string): SpacetimeLiveBridge {
   const connectionState = useSpacetimeDB();
   const conn = connectionState.getConnection() as DbConnection | null;
-  const seedAttemptedRef = useRef(false);
+  const roomEnsureRef = useRef(false);
   const joinedKeyRef = useRef("");
+  const cursorSendRef = useRef(0);
 
   const [rooms, roomsReady] = useTable(tables.room);
   const [nodes, nodesReady] = useTable(tables.mapNode);
@@ -407,13 +449,17 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
   const [participants, participantsReady] = useTable(tables.participant);
   const [focusRows, focusReady] = useTable(tables.roomFocus);
   const [events, eventsReady] = useTable(tables.roomEvent);
+  const [cursorRows, cursorsReady] = useTable(tables.cursor);
+  const [workerRows, workersReady] = useTable(tables.agentWorker);
 
-  const demoRoom = useMemo(
+  const selfHex = connectionState.identity?.toHexString() ?? "";
+
+  const roomRow = useMemo(
     () => (rooms as readonly DbRoom[]).find((room) => room.code === roomCode),
     [roomCode, rooms]
   );
 
-  const roomId = demoRoom?.roomId;
+  const roomId = roomRow?.roomId;
 
   useEffect(() => {
     if (connectionState.token) {
@@ -428,32 +474,32 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
   useEffect(() => {
     if (!conn || !connectionState.isActive || !roomsReady) return;
 
-    if (!demoRoom && !seedAttemptedRef.current) {
-      seedAttemptedRef.current = true;
+    if (!roomRow && !roomEnsureRef.current) {
+      roomEnsureRef.current = true;
       void conn.reducers.createRoom({
         code: roomCode,
         title: `Signal Room ${roomCode}`,
         displayName,
       })
         .catch((error: unknown) => {
-          seedAttemptedRef.current = false;
-          console.warn("Unable to create Signal Room", error);
+          roomEnsureRef.current = false;
+          console.error("Unable to create Signal Room", error);
         });
       return;
     }
 
-    if (demoRoom) {
-      const joinKey = `${rowId(demoRoom.roomId)}:${displayName}`;
+    if (roomRow) {
+      const joinKey = `${rowId(roomRow.roomId)}:${displayName}`;
       if (joinedKeyRef.current !== joinKey) {
         joinedKeyRef.current = joinKey;
         void conn.reducers.joinRoom({ code: roomCode, displayName }).catch(
           (error: unknown) => {
-            console.warn("Unable to join Signal Room demo", error);
+            console.error("Unable to join Signal Room", error);
           }
         );
       }
     }
-  }, [conn, connectionState.isActive, demoRoom, displayName, roomCode, roomsReady]);
+  }, [conn, connectionState.isActive, roomRow, displayName, roomCode, roomsReady]);
 
   const roomRows = useMemo(() => {
     if (roomId === undefined) {
@@ -468,6 +514,8 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
         participants: [] as DbParticipant[],
         focusRows: [] as DbRoomFocus[],
         events: [] as DbRoomEvent[],
+        cursors: [] as DbCursor[],
+        workers: [] as DbAgentWorker[],
       };
     }
 
@@ -482,8 +530,11 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
       participants: (participants as readonly DbParticipant[]).filter((row) => row.roomId === roomId),
       focusRows: (focusRows as readonly DbRoomFocus[]).filter((row) => row.roomId === roomId),
       events: (events as readonly DbRoomEvent[]).filter((row) => row.roomId === roomId),
+      cursors: (cursorRows as readonly DbCursor[]).filter((row) => row.roomId === roomId),
+      workers: (workerRows as readonly DbAgentWorker[]).filter((row) => row.roomId === roomId),
     };
   }, [
+    cursorRows,
     edges,
     events,
     findings,
@@ -495,27 +546,12 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
     roomId,
     tasks,
     transcripts,
+    workerRows,
   ]);
 
   const nodeById = useMemo(() => {
     return new Map(roomRows.nodes.map((node) => [rowId(node.nodeId), node]));
   }, [roomRows.nodes]);
-
-  const displayNodeRows = useMemo(() => {
-    const hasNarrativeSeed = roomRows.nodes.some(
-      (node) => node.title === "NVIDIA year-end estimate"
-    );
-    if (!hasNarrativeSeed) return roomRows.nodes;
-
-    return roomRows.nodes.filter(
-      (node) =>
-        node.title !== "Signal Room vertical slice" && node.title !== "Researchable node"
-    );
-  }, [roomRows.nodes]);
-
-  const displayNodeById = useMemo(() => {
-    return new Map(displayNodeRows.map((node) => [rowId(node.nodeId), node]));
-  }, [displayNodeRows]);
 
   const liveReady =
     roomsReady &&
@@ -528,7 +564,9 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
     transcriptsReady &&
     participantsReady &&
     focusReady &&
-    eventsReady;
+    eventsReady &&
+    cursorsReady &&
+    workersReady;
 
   const status: SpacetimeAdapterStatus = useMemo(
     () => ({
@@ -581,16 +619,23 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
 
   return {
     status,
-    roomTitle: demoRoom?.title,
-    roomDescription: demoRoom?.description,
+    roomTitle: roomRow?.title,
+    roomDescription: roomRow?.description,
     roomId,
     focusedNodeId: focusedNodeId === undefined ? undefined : nodeUiId(focusedNodeId),
-    mapNodes: displayNodeRows.map(mapDbNode),
+    mapNodes: roomRows.nodes.map(mapDbNode),
     mapEdges: roomRows.edges
-      .map((edge) => mapDbEdge(edge, displayNodeById))
+      .map((edge) => mapDbEdge(edge, nodeById))
       .filter((edge): edge is MapEdge => Boolean(edge)),
-    presence: roomRows.participants.map((participant, index) =>
-      mapPresence(participant, index, nodeById)
+    presence: roomRows.participants.map((participant) =>
+      mapPresence(participant, selfHex, nodeById)
+    ),
+    cursors: roomRows.cursors
+      .filter((cursor) => cursor.identity.toHexString() !== selfHex)
+      .filter((cursor) => Date.now() - timestampMillis(cursor.updatedAt) < 15000)
+      .map((cursor) => mapCursor(cursor, selfHex)),
+    workers: sortNewest(roomRows.workers, (row) => row.updatedAt).map((worker) =>
+      mapWorker(worker, nodeById)
     ),
     sharedNotes: sortNewest(roomRows.notes, (row) => row.createdAt)
       .slice(0, 8)
@@ -692,6 +737,15 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
         cursorNodeId: nodeIdFromUi(cursorNodeId),
       });
       return true;
+    },
+    moveCursor: (x: number, y: number) => {
+      if (!conn || !connectionState.isActive || roomId === undefined) return;
+      const now = Date.now();
+      if (now - cursorSendRef.current < 55) return;
+      cursorSendRef.current = now;
+      conn.reducers.updateCursor({ roomId, x, y, displayName }).catch(() => {
+        // Cursor frames are ephemeral; dropping one is harmless.
+      });
     },
   };
 }

@@ -2,7 +2,7 @@
 
 ## One-Liner
 
-Signal Room is a live human-agent research room. As a group talks, the room turns transcript chunks, human notes, open questions, and agent research into one shared map that updates for every browser in real time.
+Signal Room is a live human-agent research room where SpacetimeDB is the entire backend. Humans and AI agents are both SpacetimeDB clients that write through the same reducers, so a group's conversation, notes, questions, and agent research become one shared map that updates for every browser in real time.
 
 ## Problem
 
@@ -14,48 +14,53 @@ Signal Room solves the missing collaboration primitive: shared live state for hu
 
 A dashboard displays data after something else creates it. Signal Room is where the shared state is created.
 
-The demo starts with an empty room. Human notes, room transcript chunks, questions, map nodes, agent tasks, and findings appear live as the room runs. Clicking a node focuses the side rail. Double-clicking opens the full agent thread. The AI is silent by default; it does not interrupt or perform a chat monologue. It routes useful events into shared state that humans control.
+The demo starts with an empty room. Live cursors, presence, human notes, room transcript chunks, questions, map nodes with real edges, agent tasks, and findings appear live as the room runs. Clicking a node focuses the inspector. The AI is silent by default; it does not interrupt or perform a chat monologue. It routes useful events into shared state that humans control.
 
 ## Why SpacetimeDB Matters
 
-SpacetimeDB is the source of truth and live sync layer. It owns rooms, participants, map nodes, map edges, transcript chunks, shared notes, question candidates, agent tasks, agent outputs, findings, and room focus.
+SpacetimeDB is the entire backend. There is no app server. The module is the single source of truth: it owns rooms, participants, cursors, agent-worker presence, map nodes, map edges, transcript chunks, shared notes, question candidates, agent tasks, agent outputs, findings, and room focus. Every client, human or agent, reads through subscriptions and writes through reducers.
 
-That matters because every browser subscribes to the same room state and sees updates without refresh. Reducers make each state change explicit. The agent gateway holds secrets and calls OpenAI or Exa, but it does not become the app database. It writes back through the same SpacetimeDB reducer path as human actions.
+Three things make this concrete for judges:
 
-The product point is that AI workers become participants in a real-time shared system, not hidden client state behind a polling dashboard.
+- Live cursors and presence prove instant multi-client sync. Pointer-move broadcasts through the `updateCursor` reducer; everyone subscribes to the `cursor` table and sees the same point on the shared map. No socket server sits in between.
+- The agent swarm coordinates through the database. Workers claim queued tasks atomically through reducers, publish their live status to the `agent_worker` table, and write findings through the same path humans use. There is no out-of-band agent messaging bus.
+- The map is real database state. The canvas draws the `map_edge` table between actual node positions, not a faked layout.
+
+The agent gateway holds secrets and calls OpenAI or Exa, but it does not become the app database. AI workers are participants in a real-time shared system, not hidden client state behind a polling dashboard.
 
 ## Demo Flow
 
-1. Open a fresh room URL such as `http://127.0.0.1:5173/?room=LIVE-HACK`.
-2. Show that the room starts empty.
-3. Open the same room in more than one browser or view.
-4. In the `Host Mic` tab, enable `Route live mic`.
-5. Add a manual transcript chunk or use browser speech capture.
-6. Watch transcript chunks, model-routed map nodes, question candidates, agent tasks, and a research finding appear across subscribed browsers without reload.
+1. Open a fresh room URL such as `http://127.0.0.1:5173/?room=LIVE-HACK`. Show that it starts empty.
+2. Open the same room in a second window and move the mouse. The other window sees the live cursor move on the shared map and a `2 here` presence avatar appears. This is the instant multi-client sync moment.
+3. In the `Host Mic` tab, enable `Route live mic`.
+4. Add a manual transcript chunk or use browser speech capture.
+5. Watch transcript chunks, model-routed map nodes with real labeled edges, question candidates, and agent tasks appear across subscribed browsers without reload.
+6. Watch the agent swarm: Scout, Analyst, and Verifier claim, research, and write live in the swarm strip; the researched node pulses `Agent on it`; a finding lands in the side rail.
 7. Add a participant note with `Add to shared map`; it round-trips through SpacetimeDB and appears on the room display.
-8. Click a node to focus the side rail, then double-click it to open the agent thread.
+8. Click a node to focus the inspector and see its real edges and attached findings.
 
 ## What Is Real
 
-- React/Vite app connected to the published SpacetimeDB `signal-room` database on maincloud.
+- React/Vite app connected to the published SpacetimeDB `signal-room` database on maincloud. SpacetimeDB is the entire backend.
 - Fresh room URLs create empty live SpacetimeDB rooms.
-- SpacetimeDB schema and reducers cover the MVP room state.
+- SpacetimeDB schema and reducers cover the room state; the module is the single source of truth.
 - Browser subscriptions render live backend rows, counts, shared notes, map nodes, transcript chunks, and findings.
+- Live multiplayer cursors and presence: pointer-move broadcasts through `updateCursor`, the `cursor` table syncs to all clients, and a presence avatar stack shows who is here.
+- Real labeled edges drawn from the `map_edge` table between actual node positions.
+- The agent swarm: Scout, Analyst, and Verifier coordinate through SpacetimeDB, claiming tasks atomically, publishing live status to the `agent_worker` table, and writing findings through the shared reducers.
 - Host Mic manual transcript chunks write into SpacetimeDB.
 - Host Mic `Route live mic` sends cumulative transcript context to the silent model router.
 - Local gateway `POST /replay-transcript` routes transcript into SpacetimeDB map nodes, questions, and tasks.
-- Local gateway `POST /work-room` claims room-scoped queued research tasks and writes findings.
-- Gateway `live-fill` remains available as a deterministic fallback.
-- Exa research works when `EXA_API_KEY` is present and has returned real source links.
+- Local gateway `POST /work-room` runs the swarm over room-scoped queued tasks and writes findings.
+- Exa research is required (`EXA_API_KEY`) and fails fast if missing; it has returned real source links. There is no mock-research fallback.
 - Desktop, mobile-width, and fresh-room browser QA have passed.
 
-## What Is Mocked Or Scoped For MVP
+## What Is Scoped For MVP
 
 - The true WebRTC/OpenAI realtime mic session is still in progress; the current live route uses browser final transcript chunks plus the gateway model router.
-- `Scripted fallback` remains as a deterministic safety path.
-- The worker is bounded by room and task count for demo safety; a daemon-style loop is not yet the default.
+- The swarm roster is capped at three workers (Scout, Analyst, Verifier); a long-running daemon is not the default.
 - There is no real auth, no diarization, no AI voice output, and the private scratchpad may be partially mocked.
 
 ## Close
 
-Signal Room shows SpacetimeDB as the live backbone for human-agent collaboration. The memorable moment is an empty room becoming a synchronized research map across multiple clients, with human and agent contributions using the same state path.
+Signal Room shows SpacetimeDB as the entire backend for human-agent collaboration. The memorable moment is an empty room becoming a synchronized research map across multiple clients, with live cursors, a coordinating agent swarm, and human and agent contributions all using the same reducer path.

@@ -2205,3 +2205,233 @@ textarea:focus {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ============================================================
+   Live multiplayer: presence, cursors, agent swarm
+   ============================================================ */
+
+/* Presence stack (who is in the room) */
+.presence-stack {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  min-height: 34px;
+  padding: 0 12px 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel-solid) 88%, transparent);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  pointer-events: auto;
+}
+
+.presence-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: -7px;
+  border-radius: 999px;
+  border: 2px solid var(--panel-solid);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.presence-dot:first-child {
+  margin-left: 0;
+}
+
+.presence-dot.self {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.presence-dot.more {
+  background: var(--raise);
+  color: var(--ink-2);
+}
+
+.presence-count {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+/* Live cursors on the canvas (rendered inside the scaled map layer) */
+.live-cursor {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  transform: translate(-2px, -2px);
+  pointer-events: none;
+  transition: left 0.08s linear, top 0.08s linear;
+  will-change: left, top;
+}
+
+.live-cursor-label {
+  margin-top: 10px;
+  padding: 2px 7px;
+  border-radius: 7px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+/* Agent swarm strip */
+.swarm-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel-solid) 88%, transparent);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  pointer-events: auto;
+}
+
+.swarm-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-2);
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.swarm-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--faint);
+}
+
+.swarm-led.on {
+  background: var(--green);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 70%, transparent);
+  animation: swarm-pulse 1.4s ease-out infinite;
+}
+
+.swarm-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swarm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.swarm-chip b {
+  color: var(--ink-2);
+  font-weight: 700;
+}
+
+.swarm-chip.active {
+  border-color: color-mix(in srgb, var(--green) 50%, var(--line));
+  background: var(--green-bg);
+  color: var(--ink-2);
+}
+
+.swarm-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--faint);
+}
+
+.swarm-chip.active .swarm-chip-dot {
+  background: var(--green);
+  animation: swarm-pulse 1.2s ease-out infinite;
+}
+
+@keyframes swarm-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 65%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--green) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 0%, transparent);
+  }
+}
+
+/* Node being actively researched by an agent */
+.node-card.researching {
+  border-color: color-mix(in srgb, var(--amber) 60%, var(--line-strong));
+}
+
+.research-ring {
+  position: absolute;
+  inset: -5px;
+  border-radius: 16px;
+  border: 2px solid color-mix(in srgb, var(--amber) 70%, transparent);
+  pointer-events: none;
+  animation: research-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes research-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.015);
+  }
+}
+
+/* Real relationship edges + labels */
+.map-edges .edge-group .lit {
+  fill: none;
+  stroke: var(--edge);
+  stroke-width: 2;
+  transition: stroke 0.2s ease, opacity 0.2s ease;
+}
+
+.map-edges .edge-group.active .lit {
+  stroke: color-mix(in srgb, var(--accent) 80%, transparent);
+  stroke-width: 2.6;
+}
+
+.map-edges .edge-group.dim {
+  opacity: 0.32;
+}
+
+.edge-label {
+  fill: var(--muted);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  paint-order: stroke;
+  stroke: color-mix(in srgb, var(--bg) 85%, transparent);
+  stroke-width: 4px;
+}

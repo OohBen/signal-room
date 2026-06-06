@@ -111,6 +111,8 @@ Tables:
 - `agent_output`
 - `finding`
 - `room_focus`
+- `cursor`
+- `agent_worker`
 
 Reducers:
 
@@ -125,6 +127,8 @@ Reducers:
 - add agent output
 - add finding
 - set room focus
+- update cursor
+- upsert agent worker
 
 Event tables:
 

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { seedRoomState } from "../data/seedRoom";
-import type { ScratchpadEntry, SharedNote, SignalRoomState } from "../types/signalRoom";
+import type { ScratchpadEntry, SignalRoomState } from "../types/signalRoom";
 import {
   getRequestedRoomCode,
   useSpacetimeLiveBridge,
@@ -10,7 +9,6 @@ import {
 interface PersistedRoomState {
   displayName: string;
   scratchpad: ScratchpadEntry[];
-  sharedNotes: SharedNote[];
 }
 
 export interface SignalRoomActions {
@@ -22,6 +20,7 @@ export interface SignalRoomActions {
   addTranscriptChunk: (text: string) => Promise<boolean>;
   redirectAgent: (text: string) => void;
   updateMapNode: (nodeId: string, patch: { title?: string; summary?: string }) => Promise<boolean>;
+  moveCursor: (x: number, y: number) => void;
 }
 
 export interface SignalRoomSnapshot {
@@ -33,6 +32,7 @@ export interface SignalRoomSnapshot {
 }
 
 const STORAGE_KEY = "signal-room.web.local-state.v1";
+const DEFAULT_DISPLAY_NAME = "You";
 
 function createId(prefix: string): string {
   if (globalThis.crypto?.randomUUID) {
@@ -40,45 +40,6 @@ function createId(prefix: string): string {
   }
 
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function cloneSeedRoomState(): SignalRoomState {
-  return {
-    ...seedRoomState,
-    mapNodes: seedRoomState.mapNodes.map((node) => ({
-      ...node,
-      focus: { ...node.focus },
-    })),
-    mapEdges: seedRoomState.mapEdges.map((edge) => ({ ...edge })),
-    presence: seedRoomState.presence.map((pin) => ({ ...pin })),
-    roomEvents: seedRoomState.roomEvents.map((event) => ({ ...event })),
-    queueItems: seedRoomState.queueItems.map((item) => ({
-      ...item,
-      metaChip: { ...item.metaChip },
-      chips: item.chips.map((chip) => ({ ...chip })),
-    })),
-    transcript: seedRoomState.transcript.map((utterance) => ({
-      ...utterance,
-      chips: utterance.chips.map((chip) => ({ ...chip })),
-    })),
-    topicChunks: seedRoomState.topicChunks.map((chunk) => ({
-      ...chunk,
-      chip: { ...chunk.chip },
-    })),
-    agents: seedRoomState.agents.map((agent) => ({ ...agent })),
-    personalCards: seedRoomState.personalCards.map((card) => ({
-      ...card,
-      chip: { ...card.chip },
-    })),
-    scratchpad: seedRoomState.scratchpad.map((entry) => ({ ...entry })),
-    sharedNotes: seedRoomState.sharedNotes.map((note) => ({ ...note })),
-    thread: {
-      ...seedRoomState.thread,
-      steps: seedRoomState.thread.steps.map((step) => ({ ...step })),
-      findingBullets: [...seedRoomState.thread.findingBullets],
-      humanEdits: [...seedRoomState.thread.humanEdits],
-    },
-  };
 }
 
 function readPersistedState(): Partial<PersistedRoomState> {
@@ -93,14 +54,12 @@ function readPersistedState(): Partial<PersistedRoomState> {
 function createInitialState(): SignalRoomState {
   const persisted = readPersistedState();
   const roomCode = getRequestedRoomCode();
-  const seed = cloneSeedRoomState();
-  const displayName = persisted.displayName || seed.displayName;
+  const displayName = persisted.displayName?.trim() || DEFAULT_DISPLAY_NAME;
   const blank = createBlankRoomState(roomCode, displayName);
 
   return {
     ...blank,
     scratchpad: persisted.scratchpad?.length ? persisted.scratchpad : blank.scratchpad,
-    sharedNotes: persisted.sharedNotes || blank.sharedNotes,
   };
 }
 
@@ -115,6 +74,8 @@ function createBlankRoomState(roomCode: string, displayName: string): SignalRoom
     mapNodes: [],
     mapEdges: [],
     presence: [],
+    cursors: [],
+    workers: [],
     roomEvents: [
       {
         id: "room-ready",
@@ -162,34 +123,37 @@ function createBlankRoomState(roomCode: string, displayName: string): SignalRoom
   };
 }
 
-function mergeLiveState(seed: SignalRoomState, live: ReturnType<typeof useSpacetimeLiveBridge>): SignalRoomState {
+function mergeLiveState(base: SignalRoomState, live: ReturnType<typeof useSpacetimeLiveBridge>): SignalRoomState {
   const hasLiveRoomData =
     live.status.mode === "spacetime" && live.status.isReady && live.status.roomId !== undefined;
 
+  if (!hasLiveRoomData) {
+    return base;
+  }
+
   return {
-    ...seed,
-    roomCode: seed.roomCode,
-    question: hasLiveRoomData ? displayRoomTitle(live.roomTitle, seed.roomCode) : seed.question,
-    questionSubtitle: hasLiveRoomData
-      ? `${seed.roomCode} · live SpacetimeDB room · watch it fill from conversation and agents`
-      : seed.questionSubtitle,
-    synthesisState: hasLiveRoomData ? "Live" : seed.synthesisState,
-    defaultFocusNodeId: live.focusedNodeId ?? seed.defaultFocusNodeId,
-    mapNodes: hasLiveRoomData ? live.mapNodes : seed.mapNodes,
-    mapEdges: hasLiveRoomData ? live.mapEdges : seed.mapEdges,
-    presence: hasLiveRoomData ? live.presence : seed.presence,
-    roomEvents: hasLiveRoomData ? live.roomEvents : seed.roomEvents,
-    queueItems: hasLiveRoomData ? live.queueItems : seed.queueItems,
-    transcript: hasLiveRoomData ? live.transcript : seed.transcript,
-    topicChunks: hasLiveRoomData ? live.topicChunks : seed.topicChunks,
-    agents: hasLiveRoomData ? live.agents : seed.agents,
-    sharedNotes: hasLiveRoomData ? live.sharedNotes : seed.sharedNotes,
+    ...base,
+    question: displayRoomTitle(live.roomTitle, base.roomCode),
+    questionSubtitle: `${base.roomCode} · live SpacetimeDB room · watch it fill from conversation and agents`,
+    synthesisState: "Live",
+    defaultFocusNodeId: live.focusedNodeId ?? base.defaultFocusNodeId,
+    mapNodes: live.mapNodes,
+    mapEdges: live.mapEdges,
+    presence: live.presence,
+    cursors: live.cursors,
+    workers: live.workers,
+    roomEvents: live.roomEvents,
+    queueItems: live.queueItems,
+    transcript: live.transcript,
+    topicChunks: live.topicChunks,
+    agents: live.agents,
+    sharedNotes: live.sharedNotes,
   };
 }
 
 function displayRoomTitle(title: string | undefined, roomCode: string): string {
   const trimmed = title?.trim();
-  if (!trimmed || /^Signal replay room\b/i.test(trimmed)) {
+  if (!trimmed) {
     return `Signal Room ${roomCode}`;
   }
   return trimmed;
@@ -205,10 +169,9 @@ export function useRoomState(): SignalRoomSnapshot {
     const persisted: PersistedRoomState = {
       displayName: state.displayName,
       scratchpad: state.scratchpad,
-      sharedNotes: state.sharedNotes,
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
-  }, [state.displayName, state.scratchpad, state.sharedNotes]);
+  }, [state.displayName, state.scratchpad]);
 
   const focusedNode = useMemo(() => {
     return (
@@ -251,7 +214,7 @@ export function useRoomState(): SignalRoomSnapshot {
       if (node) {
         setFocusNodeId(nodeId);
         void live.setRoomFocus(nodeId, node.title).catch((error: unknown) => {
-          console.warn("Unable to sync room focus", error);
+          console.error("Unable to sync room focus", error);
         });
       }
     },
@@ -261,15 +224,15 @@ export function useRoomState(): SignalRoomSnapshot {
   const clearFocusNode = useCallback(() => {
     setFocusNodeId("");
     void live.clearRoomFocus().catch((error: unknown) => {
-      console.warn("Unable to clear room focus", error);
+      console.error("Unable to clear room focus", error);
     });
   }, [live]);
 
   const setDisplayName = useCallback((displayName: string) => {
-    const normalized = displayName.trim() || seedRoomState.displayName;
+    const normalized = displayName.trim() || DEFAULT_DISPLAY_NAME;
     setState((current) => ({ ...current, displayName: normalized }));
     void live.upsertParticipant(normalized, "online", focusNodeId).catch((error: unknown) => {
-      console.warn("Unable to sync participant", error);
+      console.error("Unable to sync participant", error);
     });
   }, [focusNodeId, live]);
 
@@ -301,42 +264,9 @@ export function useRoomState(): SignalRoomSnapshot {
       const body = text.trim();
       if (!body) return;
 
-      const addLocalNote = () => {
-        setState((current) => {
-        const focused =
-          visibleState.mapNodes.find((node) => node.id === focusNodeId) ??
-          visibleState.mapNodes[0] ??
-          current.mapNodes[0];
-        const note: SharedNote = {
-          id: createId("shared"),
-          author: current.displayName,
-          body,
-          connected: focused.title,
-        };
-
-        return {
-          ...current,
-          sharedNotes: [note, ...current.sharedNotes],
-          roomEvents: [
-            {
-              id: createId("event"),
-              text: `${current.displayName} added a quiet note to ${focused.title}.`,
-            },
-            ...current.roomEvents,
-          ],
-        };
-        });
-      };
-
-      void live
-        .addSharedNote(body, focusNodeId, state.displayName)
-        .then((synced) => {
-          if (!synced) addLocalNote();
-        })
-        .catch((error: unknown) => {
-          console.warn("Unable to sync shared note", error);
-          addLocalNote();
-        });
+      void live.addSharedNote(body, focusNodeId, state.displayName).catch((error: unknown) => {
+        console.error("Unable to sync shared note", error);
+      });
     },
     [focusNodeId, live, state.displayName]
   );
@@ -346,41 +276,10 @@ export function useRoomState(): SignalRoomSnapshot {
       const body = text.trim();
       if (!body) return false;
 
-      const addLocalTranscript = () => {
-        setState((current) => ({
-          ...current,
-          transcript: [
-            {
-              id: createId("transcript"),
-              speaker: "Room conversation",
-              timestamp: "live",
-              text: body,
-              chips: [
-                { label: "manual", tone: "blue" },
-                { label: "map input", tone: "green" },
-              ],
-            },
-            ...current.transcript,
-          ],
-          topicChunks: [
-            {
-              id: createId("topic"),
-              window: "Live chunk",
-              chip: { label: "Room conversation", tone: "blue" },
-              summary: body,
-            },
-            ...current.topicChunks,
-          ],
-        }));
-      };
-
       try {
-        const synced = await live.addTranscriptChunk(body);
-        if (!synced) addLocalTranscript();
-        return synced;
+        return await live.addTranscriptChunk(body);
       } catch (error: unknown) {
-        console.warn("Unable to sync transcript chunk", error);
-        addLocalTranscript();
+        console.error("Unable to sync transcript chunk", error);
         return false;
       }
     },
@@ -392,7 +291,7 @@ export function useRoomState(): SignalRoomSnapshot {
     if (!body) return;
 
     void live.createAgentTask(body, focusNodeId).catch((error: unknown) => {
-      console.warn("Unable to sync agent redirect", error);
+      console.error("Unable to sync agent redirect", error);
     });
 
     setState((current) => ({
@@ -405,10 +304,6 @@ export function useRoomState(): SignalRoomSnapshot {
         },
         ...current.scratchpad,
       ],
-      thread: {
-        ...current.thread,
-        nextUpdate: "Agent is checking production-volume evidence and the old CPI sensitivity note.",
-      },
     }));
   }, [focusNodeId, live]);
 
@@ -418,36 +313,19 @@ export function useRoomState(): SignalRoomSnapshot {
       const summary = patch.summary?.trim();
       if (!title && !summary) return false;
 
-      const applyLocalPatch = () => {
-        setState((current) => ({
-          ...current,
-          mapNodes: current.mapNodes.map((node) => {
-            if (node.id !== nodeId) return node;
-            const nextTitle = title || node.title;
-            const nextSummary = summary || node.summary;
-            return {
-              ...node,
-              title: nextTitle,
-              summary: nextSummary,
-              focus: {
-                ...node.focus,
-                title: nextTitle,
-                text: nextSummary,
-              },
-            };
-          }),
-        }));
-      };
-
       try {
-        const synced = await live.updateMapNode(nodeId, { title, summary });
-        if (!synced) applyLocalPatch();
-        return synced;
+        return await live.updateMapNode(nodeId, { title, summary });
       } catch (error: unknown) {
-        console.warn("Unable to update map node", error);
-        applyLocalPatch();
+        console.error("Unable to update map node", error);
         return false;
       }
+    },
+    [live]
+  );
+
+  const moveCursor = useCallback(
+    (x: number, y: number) => {
+      live.moveCursor(x, y);
     },
     [live]
   );
@@ -462,12 +340,14 @@ export function useRoomState(): SignalRoomSnapshot {
       addTranscriptChunk,
       redirectAgent,
       updateMapNode,
+      moveCursor,
     }),
     [
       addPrivatePrompt,
       addSharedNote,
       addTranscriptChunk,
       clearFocusNode,
+      moveCursor,
       redirectAgent,
       setDisplayName,
       setFocusNode,

@@ -18,9 +18,10 @@ import CreateMapNodeReducer from "../create_map_node_reducer";
 import CreateQuestionCandidateReducer from "../create_question_candidate_reducer";
 import CreateRoomReducer from "../create_room_reducer";
 import JoinRoomReducer from "../join_room_reducer";
-import SeedDemoRoomReducer from "../seed_demo_room_reducer";
 import SetRoomFocusReducer from "../set_room_focus_reducer";
+import UpdateCursorReducer from "../update_cursor_reducer";
 import UpdateMapNodeReducer from "../update_map_node_reducer";
+import UpsertAgentWorkerReducer from "../upsert_agent_worker_reducer";
 import UpsertParticipantReducer from "../upsert_participant_reducer";
 
 export type AddAgentOutputParams = __Infer<typeof AddAgentOutputReducer>;
@@ -35,8 +36,9 @@ export type CreateMapNodeParams = __Infer<typeof CreateMapNodeReducer>;
 export type CreateQuestionCandidateParams = __Infer<typeof CreateQuestionCandidateReducer>;
 export type CreateRoomParams = __Infer<typeof CreateRoomReducer>;
 export type JoinRoomParams = __Infer<typeof JoinRoomReducer>;
-export type SeedDemoRoomParams = __Infer<typeof SeedDemoRoomReducer>;
 export type SetRoomFocusParams = __Infer<typeof SetRoomFocusReducer>;
+export type UpdateCursorParams = __Infer<typeof UpdateCursorReducer>;
 export type UpdateMapNodeParams = __Infer<typeof UpdateMapNodeReducer>;
+export type UpsertAgentWorkerParams = __Infer<typeof UpsertAgentWorkerReducer>;
 export type UpsertParticipantParams = __Infer<typeof UpsertParticipantReducer>;
 

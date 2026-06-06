@@ -26,17 +26,8 @@ export interface HealthServerOptions {
   host?: string;
   port?: number;
   runtimeEnv: GatewayRuntimeEnv;
-  processRoom?: (request: ProcessRoomRequest) => Promise<unknown>;
   replayTranscript?: (request: ReplayTranscriptRequest) => Promise<unknown>;
   workRoom?: (request: WorkRoomRequest) => Promise<unknown>;
-}
-
-export interface ProcessRoomRequest {
-  roomCode: string;
-  displayName?: string;
-  delayMs?: number;
-  database?: string;
-  forceMock?: boolean;
 }
 
 export interface ReplayTranscriptRequest {
@@ -50,8 +41,8 @@ export interface ReplayTranscriptRequest {
 export interface WorkRoomRequest {
   roomCode: string;
   database?: string;
-  forceMock?: boolean;
   maxTasks?: number;
+  workerCount?: number;
 }
 
 export function buildHealthPayload(runtimeEnv: GatewayRuntimeEnv): HealthPayload {
@@ -135,29 +126,6 @@ async function handleRequest(
     return;
   }
 
-  if (request.method === "POST" && path === "/process-room") {
-    if (!options.processRoom) {
-      writeJson(response, 503, {
-        ok: false,
-        error: "processor_unavailable",
-      });
-      return;
-    }
-
-    try {
-      const body = await readJsonBody(request);
-      const result = await options.processRoom(parseProcessRoomRequest(body));
-      writeJson(response, 200, { ok: true, result });
-    } catch (error: unknown) {
-      writeJson(response, 400, {
-        ok: false,
-        error: "bad_request",
-        message: error instanceof Error ? error.message : "Invalid process-room request",
-      });
-    }
-    return;
-  }
-
   if (request.method === "POST" && path === "/replay-transcript") {
     if (!options.replayTranscript) {
       writeJson(response, 503, {
@@ -235,27 +203,6 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   return body.trim() ? JSON.parse(body) : {};
 }
 
-function parseProcessRoomRequest(body: unknown): ProcessRoomRequest {
-  if (!body || typeof body !== "object") {
-    throw new Error("Body must be a JSON object");
-  }
-
-  const record = body as Record<string, unknown>;
-  const roomCode = parseString(record.roomCode, "roomCode");
-  const displayName = parseOptionalString(record.displayName, "displayName");
-  const database = parseOptionalString(record.database, "database");
-  const delayMs = parseOptionalDelay(record.delayMs);
-  const forceMock = typeof record.forceMock === "boolean" ? record.forceMock : undefined;
-
-  return {
-    roomCode,
-    displayName,
-    database,
-    delayMs,
-    forceMock,
-  };
-}
-
 function parseReplayTranscriptRequest(body: unknown): ReplayTranscriptRequest {
   if (!body || typeof body !== "object") {
     throw new Error("Body must be a JSON object");
@@ -285,14 +232,14 @@ function parseWorkRoomRequest(body: unknown): WorkRoomRequest {
   const record = body as Record<string, unknown>;
   const roomCode = parseString(record.roomCode, "roomCode");
   const database = parseOptionalString(record.database, "database");
-  const forceMock = typeof record.forceMock === "boolean" ? record.forceMock : undefined;
   const maxTasks = parseOptionalMaxTasks(record.maxTasks);
+  const workerCount = parseOptionalWorkerCount(record.workerCount);
 
   return {
     roomCode,
     database,
-    forceMock,
     maxTasks,
+    workerCount,
   };
 }
 
@@ -324,6 +271,14 @@ function parseOptionalMaxTasks(value: unknown): number | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 10) {
     throw new Error("maxTasks must be an integer from 1 to 10");
+  }
+  return value;
+}
+
+function parseOptionalWorkerCount(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 6) {
+    throw new Error("workerCount must be an integer from 1 to 6");
   }
   return value;
 }

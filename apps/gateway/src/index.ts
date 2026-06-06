@@ -7,10 +7,10 @@ import { getGatewayRuntimeEnv, loadAiEnv } from "./config/env.js";
 import { buildHealthPayload, startHealthServer } from "./http/health.js";
 import { createOpenAiRealtimeRouter } from "./realtime/router.js";
 import { createTranscriptRouter } from "./realtime/transcriptRouter.js";
-import { runLiveFillDemo } from "./spacetime/liveFill.js";
 import { replayTranscript } from "./spacetime/replayTranscript.js";
 import { writeResearchResultToSpacetime } from "./spacetime/writeback.js";
-import { startQueuedTaskWorkerLoop, workOneQueuedTask, workQueuedTasks } from "./tasks/taskWorker.js";
+import { workOneQueuedTask, workQueuedTasks } from "./tasks/taskWorker.js";
+import { runRoomSwarm } from "./tasks/swarm.js";
 import { ResearchTaskRunner } from "./tasks/researchTaskRunner.js";
 
 type Command =
@@ -18,7 +18,6 @@ type Command =
   | "health"
   | "smoke"
   | "research"
-  | "live-fill"
   | "replay-transcript"
   | "work-once"
   | "work-batch"
@@ -26,7 +25,6 @@ type Command =
 
 interface CliOptions {
   command: Command;
-  forceMock: boolean;
   query?: string;
   nodeId?: string;
   roomId?: string;
@@ -56,33 +54,9 @@ async function main(): Promise<void> {
   });
 
   if (options.command === "serve") {
-    const workerRunner = new ResearchTaskRunner(
-      createExaResearchClient({ forceMock: options.forceMock })
-    );
-    const workerLoop = startQueuedTaskWorkerLoop({
-      database: options.database,
-      runner: workerRunner,
-      intervalMs: 3500,
-      maxTasksPerTick: 3,
-    });
-    process.once("SIGINT", workerLoop.stop);
-    process.once("SIGTERM", workerLoop.stop);
-
     startHealthServer({
       runtimeEnv,
       port: parsePort(process.env.PORT),
-      processRoom: async (request) => {
-        const runner = new ResearchTaskRunner(
-          createExaResearchClient({ forceMock: request.forceMock ?? options.forceMock })
-        );
-        return runLiveFillDemo({
-          database: request.database ?? options.database,
-          roomCode: request.roomCode,
-          displayName: request.displayName ?? options.displayName,
-          delayMs: request.delayMs ?? options.delayMs,
-          runner,
-        });
-      },
       replayTranscript: async (request) =>
         replayTranscript({
           database: request.database ?? options.database,
@@ -93,14 +67,12 @@ async function main(): Promise<void> {
           routeTranscript,
         }),
       workRoom: async (request) => {
-        const runner = new ResearchTaskRunner(
-          createExaResearchClient({ forceMock: request.forceMock ?? options.forceMock })
-        );
-        return workQueuedTasks({
+        const runner = new ResearchTaskRunner(createExaResearchClient());
+        return runRoomSwarm({
           database: request.database ?? options.database,
           roomCode: request.roomCode,
-          maxTasks: request.maxTasks ?? options.maxTasks,
           runner,
+          workerCount: request.workerCount,
         });
       },
     });
@@ -109,19 +81,6 @@ async function main(): Promise<void> {
 
   if (options.command === "health") {
     console.log(JSON.stringify(buildHealthPayload(runtimeEnv), null, 2));
-    return;
-  }
-
-  if (options.command === "live-fill") {
-    const runner = new ResearchTaskRunner(createExaResearchClient({ forceMock: options.forceMock }));
-    const output = await runLiveFillDemo({
-      database: options.database,
-      roomCode: options.roomCode ?? buildDefaultRoomCode(),
-      displayName: options.displayName,
-      delayMs: options.delayMs,
-      runner,
-    });
-    console.log(JSON.stringify({ ok: true, liveFill: output }, null, 2));
     return;
   }
 
@@ -140,7 +99,7 @@ async function main(): Promise<void> {
   }
 
   if (options.command === "work-once") {
-    const runner = new ResearchTaskRunner(createExaResearchClient({ forceMock: options.forceMock }));
+    const runner = new ResearchTaskRunner(createExaResearchClient());
     const output = await workOneQueuedTask({
       database: options.database,
       roomCode: options.roomCode,
@@ -151,7 +110,7 @@ async function main(): Promise<void> {
   }
 
   if (options.command === "work-batch") {
-    const runner = new ResearchTaskRunner(createExaResearchClient({ forceMock: options.forceMock }));
+    const runner = new ResearchTaskRunner(createExaResearchClient());
     const output = await workQueuedTasks({
       database: options.database,
       roomCode: options.roomCode,
@@ -164,7 +123,7 @@ async function main(): Promise<void> {
 
   if (options.command === "smoke" || options.command === "research") {
     const query = options.query ?? "SpacetimeDB realtime collaborative research demo risks";
-    const runner = new ResearchTaskRunner(createExaResearchClient({ forceMock: options.forceMock }));
+    const runner = new ResearchTaskRunner(createExaResearchClient());
     const output = await runner.run({
       taskId: options.taskId ?? (options.command === "smoke" ? "smoke-task" : undefined),
       roomId: options.roomId,
@@ -193,7 +152,6 @@ async function main(): Promise<void> {
 
 function parseArgs(args: string[]): CliOptions {
   const command = normalizeCommand(args[0]);
-  let forceMock = false;
   let query: string | undefined;
   let nodeId: string | undefined;
   let roomId: string | undefined;
@@ -210,11 +168,6 @@ function parseArgs(args: string[]): CliOptions {
 
   for (let index = 1; index < args.length; index += 1) {
     const arg = args[index];
-    if (arg === "--mock") {
-      forceMock = true;
-      continue;
-    }
-
     if (arg === "--query") {
       query = readOptionValue(args, index, "--query");
       index += 1;
@@ -298,7 +251,6 @@ function parseArgs(args: string[]): CliOptions {
 
   return {
     command,
-    forceMock,
     query,
     nodeId,
     roomId,
@@ -325,7 +277,6 @@ function normalizeCommand(command: string | undefined): Command {
     command === "health" ||
     command === "smoke" ||
     command === "research" ||
-    command === "live-fill" ||
     command === "replay-transcript" ||
     command === "work-once" ||
     command === "work-batch" ||
@@ -405,22 +356,20 @@ function printHelp(): void {
 Commands:
   serve              Start the local health endpoint on /health.
   health             Print sanitized health JSON.
-  smoke [--mock]     Run a deterministic research task smoke check.
+  smoke              Run a deterministic research task smoke check.
   research           Run a research task; uses EXA_API_KEY when available.
-  live-fill          Create a fresh room and fill it live with transcript, map, and research rows.
   replay-transcript  Replay a transcript into a live room, deriving map nodes and agent tasks.
   work-once          Claim one queued SpacetimeDB agent task, run research, and write back.
   work-batch         Claim up to --max-tasks queued tasks, filtered by --room-code when provided.
 
 Options:
-  --mock             Force mock research even if EXA_API_KEY exists.
   --query <query>    Research query for smoke/research.
   --node <id>        Connected map node id. Use numeric SpacetimeDB node id with --write-back.
   --room <id>        Numeric SpacetimeDB room id for --write-back.
-  --room-code <code> Room code for live-fill. Defaults to a unique LIVE-* code.
+  --room-code <code> Room code for replay-transcript. Defaults to a unique LIVE-* code.
                      For work-once/work-batch, filters queued tasks to this room code.
-  --display-name <n> Display name used for room creation/live-fill.
-  --delay-ms <ms>    Delay between live-fill/replay steps. Defaults to 1200.
+  --display-name <n> Display name used for room creation.
+  --delay-ms <ms>    Delay between replay steps. Defaults to 1200.
   --file <path>      Transcript file for replay-transcript.
   --router-model <m> OpenRouter model for transcript routing. Defaults to inception/mercury-2.
   --max-tasks <n>    Maximum tasks for work-batch or /work-room. Defaults to 1, max 10.

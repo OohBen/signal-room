@@ -2,14 +2,15 @@
 
 ## Goal
 
-Show a fresh room filling live from conversation into shared map state.
+Show a fresh room proving instant multi-client sync, then filling live from conversation into shared map state.
 
 The judge should see:
 
 - An empty SpacetimeDB room.
+- A second window: live cursors moving on the shared map and a presence avatar appearing.
 - A host transcript chunk added live.
-- Silent agents triggered by the host, not interrupting the room.
-- Map nodes, questions, tasks, and findings appearing without reload.
+- An agent swarm coordinating through the database, not interrupting the room.
+- Map nodes, real labeled edges, questions, tasks, and findings appearing without reload.
 - The same room available to participant laptops.
 
 ## Local Services
@@ -35,10 +36,10 @@ curl http://127.0.0.1:8787/health
 Expected:
 
 - `ok: true`
-- `hasOpenAiApiKey: true`
-- `hasExaApiKey: true`
-- `hasOpenRouterApiKey: true`
-- `audioImplemented: true`
+- `env.hasOpenAiApiKey: true`
+- `env.hasExaApiKey: true`
+- `env.hasOpenRouterApiKey: true`
+- `realtimeRouter.audioMode: "openai_realtime"`
 
 ## Browser Setup
 
@@ -53,7 +54,7 @@ Use a new room code for each demo run:
 ```text
 LIVE-001
 LIVE-002
-LIVE-NVDA
+LIVE-HACK
 ```
 
 Fresh rooms should start empty with `Waiting for first signal`.
@@ -64,17 +65,25 @@ Fresh rooms should start empty with `Waiting for first signal`.
 
 ACTION: Open `Room Display` on a fresh room URL.
 
-SAY: "This starts as an empty SpacetimeDB room. There is no prebuilt board here."
+SAY: "This starts as an empty SpacetimeDB room. There is no prebuilt board here, and there is no app server. SpacetimeDB is the whole backend."
 
 JUDGE SEES: Empty shared map, live status, room code in header.
 
-### [0:20] Host Adds Conversation
+### [0:15] Second Window: Live Cursors And Presence
+
+ACTION: Open the same room URL in a second browser window and move the mouse over the shared map.
+
+SAY: "Both windows are SpacetimeDB clients on the same room. Each cursor broadcasts through the `updateCursor` reducer, and everyone subscribes to the `cursor` table. There is no socket server in between."
+
+JUDGE SEES: The other participant's cursor moving live on the shared map in the same stage coordinates, plus a presence avatar stack in the canvas header showing `2 here`. This is the instant multi-client sync proof.
+
+### [0:30] Host Adds Conversation
 
 ACTION: Click `Host Mic`.
 
 ACTION: Enable `Route live mic` before adding the transcript chunk. This makes final speech/manual chunks route into map nodes and tasks as they arrive.
 
-When `Route live mic` is enabled, typed chunks route over HTTP and live mic chunks route over the gateway WebSocket. The gateway also works one queued research task for the room. A finding should appear in the right rail shortly after the map updates.
+When `Route live mic` is enabled, typed chunks route over HTTP and live mic chunks route over the gateway WebSocket. After routing, the gateway auto-calls `/work-room`, which spins up the agent swarm to drain the room's queued research tasks. Findings appear in the right rail shortly after the map updates.
 
 ACTION: Add this transcript chunk:
 
@@ -88,44 +97,25 @@ SAY: "The first room signal is now a reducer write. Every client subscribed to t
 
 JUDGE SEES: Transcript count increments, the chunk appears in the host rail, and the map starts filling from the blank room.
 
-### [0:45] Silent Research Work
+### [0:55] Agent Swarm Coordinates Through The Database
 
-ACTION: If no finding has appeared yet, click `Work one task`.
+ACTION: Watch the swarm strip on the room display.
 
-SAY: "The AI is not speaking into the meeting. It writes passive state: nodes, questions, tasks, and findings. Humans decide what to open."
+SAY: "The AI is not speaking into the meeting. Up to three named workers, Scout, Analyst, and Verifier, coordinate entirely through SpacetimeDB. Each claims a queued task atomically, writes its live status to the `agent_worker` table, and writes findings through the same reducers humans use."
 
-JUDGE SEES: A queued research task becomes a finding in the right rail.
+JUDGE SEES: Workers move through `idle -> claiming -> researching -> writing -> done` in the swarm strip, the node being researched shows an `Agent on it` pulse ring, and a finding lands in the right rail.
 
-### Alternate: Audio Fixture Replay
-
-ACTION: Use a real recorded `.m4a` conversation to prove the voice-to-router path:
-
-```bash
-pnpm --dir apps/gateway build
-node --enable-source-maps apps/gateway/dist/index.js audio-replay \
-  --room-code LIVE-AUDIO \
-  --display-name Ben \
-  --delay-ms 650 \
-  --chunk-seconds 12 \
-  --file "/Users/bengoihman/Desktop/Downloads/Fashion Institute of Technology 3.m4a"
-```
-
-SAY: "This is a real recording, chunked like a live meeting. The router stays silent and writes shared state when the conversation produces researchable questions or explicit agent asks."
-
-JUDGE SEES: The room fills with a Strait of Hormuz root, oil shock path, ceasefire negotiations, third-party pressure, and an explicit agent research task.
-
-### [1:00] Map Fills Live
+### [1:10] Map Fills Live
 
 ACTION: Click `Room Display`.
 
-SAY: "This is the SpacetimeDB part. The gateway is not maintaining app state. It is only calling reducers. The UI updates because it is subscribed to shared room tables."
+SAY: "This is the SpacetimeDB part. The gateway is not maintaining app state. It is only calling reducers. Every window updates because it is subscribed to the shared room tables."
 
 JUDGE SEES:
 
-- `Strait of Hormuz Reopening Prediction`
-- `China & India public positions on Iran conflict`
-- `Oil price impact of ceasefire talks`
-- Important finding in the right rail.
+- Map nodes derived live from the routed conversation.
+- Real labeled edges drawn between connected nodes (the canvas reads the `map_edge` table, not a faked layout).
+- An Important finding in the right rail.
 
 ### [1:45] Human Quiet Backchannel
 
@@ -143,32 +133,33 @@ SAY: "Humans can add ideas without interrupting the room. Those are also reducer
 
 JUDGE SEES: Note appears back in the shared room.
 
-### [2:15] Agent Thread
+### [2:15] Node Inspector
 
-ACTION: Double-click a map node or open `Agent Thread`.
+ACTION: Click a map node to focus it.
 
-SAY: "A node can be opened into the full agent thread: what triggered it, what sources it found, and how humans can redirect it."
+SAY: "Clicking a node focuses the inspector: what the node is, the real edges connecting it to other topics, and the findings attached to it."
 
-JUDGE SEES: Thread view with finding summary, timeline, and human redirect box.
+JUDGE SEES: The inspector with the node summary, its labeled edges, and any attached findings.
 
 ## What Is Real
 
-- SpacetimeDB cloud room creation.
-- Live subscriptions from React.
+- SpacetimeDB cloud room creation; SpacetimeDB is the entire backend.
+- Live subscriptions from React; humans and agents are both SpacetimeDB clients.
 - Reducer writes for transcript chunks, notes, map nodes, edges, question candidates, agent tasks, agent outputs, findings, and focus.
-- Gateway HTTP triggers for transcript routing and room-scoped task work.
+- Live multiplayer cursors and presence: pointer-move broadcasts through `updateCursor`, everyone subscribes to the `cursor` table, and a presence avatar stack shows who is here.
+- Real labeled edges: the canvas draws the `map_edge` table between actual node positions.
+- The agent swarm: Scout, Analyst, and Verifier coordinate through SpacetimeDB, writing live status to the `agent_worker` table and findings through the shared reducers.
+- Gateway HTTP triggers for transcript routing (`/replay-transcript`) and the room swarm (`/work-room`).
 - Gateway `WS /live-audio` for browser-recorded mic chunks.
 - Host Mic `Route live mic` path from transcript chunk to model-routed map/task state.
-- Bounded research worker through `/work-room`.
-- Exa research path when key is available.
+- Research requires `EXA_API_KEY` and fails fast with a clear error if it is missing. There is no mock-research fallback.
 - Browser mic capture with MediaRecorder and WebSocket, falling back to SpeechRecognition where needed.
-- Audio fixture replay from real `.m4a` recordings through OpenAI transcription and SpacetimeDB reducer writes.
 
-## What Is Still Mocked Or Deterministic
+## What Is Still Scoped For MVP
 
-- `Scripted fallback` currently runs a deterministic room-processor sequence and is not the primary demo path.
-- True OpenAI Realtime/WebRTC tool-call loop is not wired yet.
+- True OpenAI Realtime/WebRTC tool-call loop is not wired yet; the live route uses browser final transcript chunks plus the gateway model router.
 - Browser mic permission/audio quality still needs an in-room live test, but the gateway WebSocket audio path is verified with a real recording chunk.
+- The swarm roster is capped at three workers (Scout, Analyst, Verifier); a long-running daemon is not the default.
 - Private scratchpad is local/demo-level.
 - No auth beyond room code and local display name.
 
@@ -180,11 +171,11 @@ If gateway is down:
 pnpm dev:gateway
 ```
 
-If live routing fails, use the deterministic CLI fallback:
+If a routed task did not turn into a finding, work the room from the CLI:
 
 ```bash
 pnpm --dir apps/gateway build
-node --enable-source-maps apps/gateway/dist/index.js live-fill --room-code LIVE-HACK --display-name Ben --delay-ms 900
+node --enable-source-maps apps/gateway/dist/index.js work-batch --room-code LIVE-HACK --max-tasks 3
 ```
 
 If SpacetimeDB publish changed:
@@ -212,6 +203,8 @@ pnpm smoke:live
 Then verify in browser:
 
 1. Fresh room starts empty.
-2. Host transcript chunk increments count.
-3. `Route live mic` plus `Add transcript chunk` fills map without reload.
-4. Participant note appears on shared display.
+2. A second window shows a live cursor and a `2 here` presence avatar.
+3. Host transcript chunk increments count.
+4. `Route live mic` plus `Add transcript chunk` fills map without reload, with real labeled edges.
+5. The swarm strip shows workers claiming, researching, and writing; a finding appears.
+6. Participant note appears on shared display.

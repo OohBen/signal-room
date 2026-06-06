@@ -4,14 +4,15 @@
 
 Working vertical slice:
 
-1. Browser opens a fresh room URL.
+1. Browser opens a fresh room URL; the room starts empty.
 2. React joins or creates the room in SpacetimeDB.
-3. Host Mic writes transcript chunks through generated SpacetimeDB bindings.
-4. Host Mic `Route live mic` calls local gateway `POST /replay-transcript`.
-5. The model-backed silent router writes map nodes, passive questions, and queued research tasks through SpacetimeDB reducers.
-6. Host Mic calls `/work-room` so one queued task can become a finding.
-7. Room Display updates live from subscriptions.
-8. Gateway can also replay text transcripts and real `.m4a` audio fixtures into the same reducer path.
+3. A second window proves instant multi-client sync: live cursors render on the shared canvas in stage coordinates (broadcast on pointer-move through `updateCursor`), and a presence avatar stack shows who is here.
+4. Host Mic writes transcript chunks through generated SpacetimeDB bindings.
+5. Host Mic `Route live mic` calls local gateway `POST /replay-transcript`.
+6. The model-backed silent router writes map nodes, real labeled edges, passive questions, and queued research tasks through SpacetimeDB reducers.
+7. Host Mic calls `/work-room`, which runs the agent swarm (Scout, Analyst, Verifier). Workers claim queued tasks atomically, publish status to the `agent_worker` table, and write findings; the canvas shows an `Agent on it` pulse on the researched node.
+8. Room Display updates live from subscriptions, drawing the `map_edge` table between node positions.
+9. Gateway can also replay text transcripts into the same reducer path.
 
 Verified commands:
 
@@ -28,7 +29,7 @@ Verified browser flow:
 http://127.0.0.1:5173/?room=SMOKE-26H27J
 ```
 
-Fresh room started empty, then model-routed transcript replay filled the map and room-scoped worker wrote an Important finding.
+Fresh room started empty, then model-routed transcript replay filled the map with real edges and the agent swarm wrote an Important finding.
 
 ## Code Map
 
@@ -36,23 +37,22 @@ Frontend:
 
 - `apps/web/src/App.tsx`: tab routing.
 - `apps/web/src/components/HostMic.tsx`: manual transcript, browser speech capture, live routing toggle, gateway trigger.
-- `apps/web/src/components/RoomDisplay.tsx`: main room surface.
-- `apps/web/src/components/RoomMap.tsx`: map rendering and node interactions.
-- `apps/web/src/adapters/roomAdapter.ts`: app-state bridge and local fallback.
-- `apps/web/src/adapters/spacetimeAdapter.ts`: generated binding subscriptions and reducer calls.
+- `apps/web/src/components/RoomDisplay.tsx`: main room surface, including the canvas header presence stack and the agent swarm strip.
+- `apps/web/src/components/RoomMap.tsx`: canvas rendering, live cursors in stage coordinates, real `map_edge` rendering, `Agent on it` pulse, and node interactions.
+- `apps/web/src/adapters/roomAdapter.ts`: app-state bridge (no local-state mirror fallbacks).
+- `apps/web/src/adapters/spacetimeAdapter.ts`: generated binding subscriptions and reducer calls, including `updateCursor`.
 - `apps/web/src/config.ts`: SpacetimeDB and gateway URLs.
 
 Gateway:
 
-- `apps/gateway/src/audio/audioFixtureReplay.ts`: real audio fixture splitting/transcription/replay.
-- `apps/gateway/src/index.ts`: CLI entrypoint.
-- `apps/gateway/src/http/health.ts`: local HTTP API, `/process-room`, `/replay-transcript`, and `/work-room`.
-- `apps/gateway/src/realtime/transcriptRouter.ts`: model-backed silent transcript router with deterministic fallback.
-- `apps/gateway/src/spacetime/liveFill.ts`: current deterministic room processor.
+- `apps/gateway/src/index.ts`: CLI entrypoint (`serve`, `health`, `smoke`, `research`, `replay-transcript`, `work-once`, `work-batch`).
+- `apps/gateway/src/http/health.ts`: local HTTP API, `/replay-transcript`, `/work-room`, and `WS /live-audio`.
+- `apps/gateway/src/realtime/transcriptRouter.ts`: model-backed silent transcript router.
 - `apps/gateway/src/spacetime/replayTranscript.ts`: transcript-to-map reducer writer with dedupe guards.
 - `apps/gateway/src/spacetime/writeback.ts`: research result writeback.
-- `apps/gateway/src/tasks/researchTaskRunner.ts`: Exa-backed research task output.
+- `apps/gateway/src/tasks/researchTaskRunner.ts`: Exa-backed research task output (requires `EXA_API_KEY`, fails fast).
 - `apps/gateway/src/tasks/taskWorker.ts`: one-pass and bounded-batch queued task worker.
+- `apps/gateway/src/tasks/swarm.ts`: `runRoomSwarm` runs up to three concurrent named workers (Scout, Analyst, Verifier) writing `agent_worker` presence and findings; wired into `POST /work-room`.
 - `apps/gateway/src/realtime/router.ts`: current policy shell for silent router.
 
 SpacetimeDB:
@@ -71,69 +71,48 @@ Docs:
 
 ### Option A: Realtime Router
 
-Goal: Replace deterministic processor trigger with actual audio/text router events.
+Goal: Replace the transcript-chunk route with a true OpenAI Realtime/WebRTC tool-call session.
 
 Acceptance:
 
-- Host can start mic session.
-- Router emits transcript chunks.
-- Explicit command like "agent, research sovereign AI demand" creates an agent task.
+- Host can start a realtime mic session.
+- Router emits transcript chunks directly from the realtime session.
+- Explicit command like "agent, research the ceasefire" creates an agent task.
 - Router stays silent. No speech output.
-- Same SpacetimeDB reducers used by current processor.
+- Same SpacetimeDB reducers used by the current route.
 
 Current progress:
 
-- Audio fixture replay chunks a real `.m4a` recording into cumulative prefixes.
-- OpenAI SDK transcription catches spoken agent requests.
-- OpenAI SDK with OpenRouter `baseURL` handles model routing and creates map nodes, passive questions, and queued tasks.
-- Deterministic fallback remains available with `--deterministic-router`.
+- OpenAI SDK transcription catches spoken agent requests over `WS /live-audio`.
+- OpenAI SDK with OpenRouter `baseURL` handles model routing and creates map nodes, real edges, passive questions, and queued tasks.
 - Host Mic has `Route live mic`; final transcript chunks call `/replay-transcript` with cumulative context.
-- Host Mic calls `/work-room` after successful live routing so one queued task can become a finding automatically.
+- Host Mic calls `/work-room` after successful live routing so the swarm turns queued tasks into findings automatically.
 - Replay dedupes identical routed transcript chunks and avoids adding questions/tasks to pre-existing nodes.
 
 Likely files:
 
 - `apps/gateway/src/realtime/router.ts`
-- `apps/gateway/src/audio/audioFixtureReplay.ts`
+- `apps/gateway/src/realtime/realtimeAudioSocket.ts`
 - `apps/gateway/src/spacetime/replayTranscript.ts`
 - `apps/gateway/src/http/health.ts`
 - `apps/web/src/components/HostMic.tsx`
 
-### Option B: Task Worker
+### Option B: Task Worker (DONE)
 
-Goal: Turn the verified one-pass worker into a long-running loop.
+Delivered as the agent swarm. `runRoomSwarm` in `apps/gateway/src/tasks/swarm.ts` runs up to three concurrent named workers (Scout, Analyst, Verifier) that drain a room's queued research tasks, write live status to the `agent_worker` table through `upsertAgentWorker`, and write findings through the existing writeback. It is wired into `POST /work-room` (optional `workerCount` 1..6, capped at 3 by the roster) and auto-triggered by Host Mic after routing. Because the co-located workers share one SpacetimeDB CLI identity, an in-process task reservation prevents duplicate findings. The always-on background `startQueuedTaskWorkerLoop` was removed from `serve`; tasks are now worked when `/work-room` is called. `work-once` and `work-batch` CLI commands still exist.
 
-Acceptance:
+Remaining (deferred): a long-running daemon that watches for queued tasks across rooms with backoff and graceful shutdown is not the default and is out of scope for the demo.
 
-- `create_agent_task` creates queued task.
-- `work-once` already claims one queued task, runs research, writes `agent_output`, writes `finding`, and completes the task.
-- Long-running command polls for queued tasks.
-- Loop has backoff, clear logs, and graceful shutdown.
-- UI updates live.
+### Option C: Multi-Client Sync (DONE for cursors/presence)
 
-Likely files:
+Delivered: opening the same room in two windows shows live cursors moving on the shared canvas in stage coordinates (broadcast via `updateCursor`) and a presence avatar stack (`N here`). Shared notes and map updates already round-trip through SpacetimeDB without reload.
 
-- `apps/gateway/src/index.ts`
-- `apps/gateway/src/spacetime/cli.ts`
-- `apps/gateway/src/spacetime/writeback.ts`
-- New `apps/gateway/src/tasks/taskWorker.ts`
-
-### Option C: Two-Client Smoke
-
-Goal: Prove multiple participants sync from SpacetimeDB.
-
-Acceptance:
-
-- Open same room in two browser contexts.
-- Different local display names.
-- Host writes transcript chunk.
-- Participant adds shared note.
-- Both clients see note and map updates without reload.
+Remaining (planned, deferred until public deploy): a QR-code join flow so a phone can join the room from the room display. Deferred until a public deploy exists so the URL is reachable off localhost.
 
 Likely files:
 
-- New script under `scripts/` or documented manual smoke.
-- Browser QA through in-app browser if practical.
+- `apps/web/src/components/RoomDisplay.tsx`
+- `apps/web/src/components/RoomMap.tsx`
 
 ### Option D: Demo Polish
 
@@ -155,12 +134,13 @@ Likely files:
 
 ## Rules For Further Work
 
-- Shared state belongs in SpacetimeDB.
-- Gateway may hold secrets and call external APIs, but should write back through reducers.
+- All shared state belongs in SpacetimeDB; it is the entire backend. No local-state mirrors or fallbacks.
+- Humans and agents are both SpacetimeDB clients that read via subscriptions and write via reducers.
+- Gateway may hold secrets and call external APIs, but must write back through reducers.
+- No silent fallbacks: research requires `EXA_API_KEY` and fails fast if missing. No mock data.
 - AI must not speak or interrupt by default.
 - Fresh-room demo path must remain available.
 - Avoid adding a second database.
-- Keep fallback CLI path working.
 
 ## Verification Gates
 
@@ -190,23 +170,23 @@ pnpm --dir apps/gateway build
 curl http://127.0.0.1:8787/health
 ```
 
-For audio fixture routing:
+For transcript routing:
 
 ```bash
-node --enable-source-maps apps/gateway/dist/index.js audio-replay \
-  --room-code AUDIO-TEST \
+node --enable-source-maps apps/gateway/dist/index.js replay-transcript \
+  --room-code ROUTE-TEST \
   --display-name Ben \
   --delay-ms 0 \
-  --chunk-seconds 12 \
-  --stop-after-agent-request \
-  --file "/Users/bengoihman/Desktop/Downloads/Fashion Institute of Technology 3.m4a"
+  --file /tmp/signal-room-transcript.txt
 ```
 
 For demo changes:
 
 1. Open fresh room.
 2. Confirm empty state.
-3. Enable Host Mic `Route live mic`.
-4. Add Host Mic transcript chunk.
-5. Confirm Room Display fills without reload and shows a queued task/finding after `/work-room`.
-6. Check console warnings/errors.
+3. Open a second window and confirm live cursors and a `2 here` presence avatar.
+4. Enable Host Mic `Route live mic`.
+5. Add Host Mic transcript chunk.
+6. Confirm Room Display fills without reload, with real labeled edges.
+7. Confirm the swarm strip shows workers claiming/researching/writing and a finding appears after `/work-room`.
+8. Check console warnings/errors.

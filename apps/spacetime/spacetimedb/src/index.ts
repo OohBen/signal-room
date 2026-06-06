@@ -208,6 +208,55 @@ const roomEvent = table(
   }
 );
 
+const cursor = table(
+  {
+    name: 'cursor',
+    public: true,
+    indexes: [
+      {
+        accessor: 'by_room_identity',
+        algorithm: 'btree',
+        columns: ['roomId', 'identity'] as const,
+      },
+    ] as const,
+  },
+  {
+    cursorId: t.u64().primaryKey().autoInc(),
+    roomId: t.u64().index('btree'),
+    identity: t.identity(),
+    displayName: t.string(),
+    x: t.f64(),
+    y: t.f64(),
+    updatedAt: t.timestamp(),
+  }
+);
+
+const agentWorker = table(
+  {
+    name: 'agent_worker',
+    public: true,
+    indexes: [
+      {
+        accessor: 'by_room_name',
+        algorithm: 'btree',
+        columns: ['roomId', 'name'] as const,
+      },
+    ] as const,
+  },
+  {
+    workerId: t.u64().primaryKey().autoInc(),
+    roomId: t.u64().index('btree'),
+    name: t.string(),
+    persona: t.string(),
+    status: t.string(),
+    detail: t.string(),
+    currentTaskId: t.option(t.u64()),
+    currentNodeId: t.option(t.u64()),
+    completedCount: t.u32(),
+    updatedAt: t.timestamp(),
+  }
+);
+
 const spacetimedb = schema({
   room,
   participant,
@@ -221,6 +270,8 @@ const spacetimedb = schema({
   finding,
   roomFocus,
   roomEvent,
+  cursor,
+  agentWorker,
 });
 
 export default spacetimedb;
@@ -330,7 +381,7 @@ function assertNodeInRoom(ctx: any, roomId: bigint, nodeId: bigint): void {
 }
 
 export const init = spacetimedb.init(_ctx => {
-  // Room state is seeded through seedDemoRoom so demos can be reset explicitly.
+  // Rooms are created live through createRoom; there is no seeded state.
 });
 
 export const onConnect = spacetimedb.clientConnected(ctx => {
@@ -915,280 +966,83 @@ export const setRoomFocus = spacetimedb.reducer(
   }
 );
 
-function findNodeByTitle(ctx: any, roomId: bigint, title: string) {
-  for (const node of ctx.db.mapNode.roomId.filter(roomId)) {
-    if (node.title === title) return node;
-  }
-  return undefined;
-}
-
-function ensureSeedNode(
-  ctx: any,
-  roomId: bigint,
-  title: string,
-  summary: string,
-  nodeType: string,
-  source: string,
-  urgency: string,
-  x: number,
-  y: number
-) {
-  const existing = findNodeByTitle(ctx, roomId, title);
-  if (existing !== undefined) return existing;
-
-  return ctx.db.mapNode.insert({
-    nodeId: 0n,
-    roomId,
-    title,
-    summary,
-    nodeType,
-    source,
-    urgency,
-    sourceRefId: undefined,
-    x,
-    y,
-    createdBy: ctx.sender,
-    createdAt: ctx.timestamp,
-    updatedAt: ctx.timestamp,
-  });
-}
-
-function ensureSeedEdge(
-  ctx: any,
-  roomId: bigint,
-  fromNodeId: bigint,
-  toNodeId: bigint,
-  label: string
-): void {
-  const existing = first(
-    ctx.db.mapEdge.by_room_nodes.filter([roomId, fromNodeId, toNodeId])
-  );
-  if (existing !== undefined) return;
-
-  ctx.db.mapEdge.insert({
-    edgeId: 0n,
-    roomId,
-    fromNodeId,
-    toNodeId,
-    label,
-    edgeType: 'related',
-    strength: 1,
-    createdBy: ctx.sender,
-    createdAt: ctx.timestamp,
-  });
-}
-
-function upsertSeedFocus(ctx: any, roomId: bigint, nodeId: bigint, label: string): void {
-  const focus = {
-    roomId,
-    nodeId,
-    label,
-    setBy: ctx.sender,
-    updatedAt: ctx.timestamp,
-  };
-  const existing = ctx.db.roomFocus.roomId.find(roomId);
-  if (existing === null) {
-    ctx.db.roomFocus.insert(focus);
-  } else {
-    ctx.db.roomFocus.roomId.update(focus);
-  }
-}
-
-export const seedDemoRoom = spacetimedb.reducer(
+export const updateCursor = spacetimedb.reducer(
   {
+    roomId: t.u64(),
+    x: t.f64(),
+    y: t.f64(),
     displayName: t.string(),
   },
-  (ctx, { displayName }) => {
-    let seededRoom = ctx.db.room.code.find('DEMO');
-    if (seededRoom === null) {
-      seededRoom = ctx.db.room.insert({
-        roomId: 0n,
-        code: 'DEMO',
-        title: 'Signal Room Demo',
-        description: 'Seeded vertical slice room for the Signal Room MVP.',
-        createdBy: ctx.sender,
-        createdAt: ctx.timestamp,
+  (ctx, { roomId, x, y, displayName }) => {
+    requireRoom(ctx, roomId);
+    const name = cleanText(displayName, 'Participant');
+    const existing = first(ctx.db.cursor.by_room_identity.filter([roomId, ctx.sender]));
+
+    if (existing === undefined) {
+      ctx.db.cursor.insert({
+        cursorId: 0n,
+        roomId,
+        identity: ctx.sender,
+        displayName: name,
+        x,
+        y,
         updatedAt: ctx.timestamp,
       });
+      return;
     }
 
-    upsertParticipantForSender(
-      ctx,
-      seededRoom.roomId,
-      displayName,
-      'host',
-      'online',
-      undefined
-    );
-
-    const root = ensureSeedNode(
-      ctx,
-      seededRoom.roomId,
-      'NVIDIA year-end estimate',
-      'Live synthesis from room conversation, quiet human notes, and agent research.',
-      'root',
-      'Synthesis AI',
-      'normal',
-      500,
-      280
-    );
-
-    const compute = ensureSeedNode(
-      ctx,
-      seededRoom.roomId,
-      'AI compute renters',
-      'Quick lane checks hyperscaler capex and who is actually renting GPUs.',
-      'research',
-      'Quick Research AI',
-      'normal',
-      170,
-      120
-    );
-
-    const oil = ensureSeedNode(
-      ctx,
-      seededRoom.roomId,
-      'Nigeria oil disruption',
-      'Human-added branch waiting on specific production-volume evidence.',
-      'human_note',
-      participantDisplayName(ctx, seededRoom.roomId, displayName),
-      'normal',
-      170,
-      445
-    );
-
-    const geopol = ensureSeedNode(
-      ctx,
-      seededRoom.roomId,
-      'Geopolitics and oil',
-      'Deep agent found a possible rates-pressure link. Waiting for room review.',
-      'finding',
-      'Deep Research AI',
-      'high',
-      835,
-      128
-    );
-
-    const capex = ensureSeedNode(
-      ctx,
-      seededRoom.roomId,
-      'Capex cycle',
-      'Michelle turned the demand story into a source-backed capex check.',
-      'human_question',
-      'Michelle',
-      'normal',
-      838,
-      442
-    );
-
-    const memory = ensureSeedNode(
-      ctx,
-      seededRoom.roomId,
-      'Old Cisco memo',
-      'Memory attached a prior bubble-comparison note to the valuation branch.',
-      'memory',
-      'Memory AI',
-      'normal',
-      500,
-      84
-    );
-
-    const question = ensureSeedNode(
-      ctx,
-      seededRoom.roomId,
-      'Sovereign AI demand',
-      'Suggested question: should sovereign AI demand be separated from hyperscaler orders?',
-      'question',
-      'Question AI',
-      'high',
-      500,
-      568
-    );
-
-    ensureSeedEdge(ctx, seededRoom.roomId, root.nodeId, compute.nodeId, 'demand');
-    ensureSeedEdge(ctx, seededRoom.roomId, root.nodeId, oil.nodeId, 'rates risk');
-    ensureSeedEdge(ctx, seededRoom.roomId, root.nodeId, geopol.nodeId, 'macro risk');
-    ensureSeedEdge(ctx, seededRoom.roomId, root.nodeId, capex.nodeId, 'capex');
-    ensureSeedEdge(ctx, seededRoom.roomId, root.nodeId, memory.nodeId, 'context');
-    ensureSeedEdge(ctx, seededRoom.roomId, root.nodeId, question.nodeId, 'open question');
-
-    const existingTranscript = first(
-      ctx.db.transcriptChunk.roomId.filter(seededRoom.roomId)
-    );
-    if (existingTranscript === undefined) {
-      ctx.db.transcriptChunk.insert({
-        chunkId: 0n,
-        roomId: seededRoom.roomId,
-        source: 'Room conversation',
-        text: 'The room wants NVIDIA demand evidence, but it also wants the agent to watch oil and rates risk quietly.',
-        startMs: 0n,
-        endMs: 9000n,
-        sourceParticipantId: undefined,
-        createdBy: ctx.sender,
-        createdAt: ctx.timestamp,
-      });
-    }
-
-    const existingNote = first(ctx.db.sharedNote.roomId.filter(seededRoom.roomId));
-    if (existingNote === undefined) {
-      ctx.db.sharedNote.insert({
-        noteId: 0n,
-        roomId: seededRoom.roomId,
-        nodeId: capex.nodeId,
-        body: 'Need actual capex numbers. Do not let this become a generic demand story.',
-        sourceDisplayName: 'Michelle',
-        createdBy: ctx.sender,
-        createdAt: ctx.timestamp,
-      });
-    }
-
-    const existingQuestion = first(
-      ctx.db.questionCandidate.roomId.filter(seededRoom.roomId)
-    );
-    if (existingQuestion === undefined) {
-      ctx.db.questionCandidate.insert({
-        questionId: 0n,
-        roomId: seededRoom.roomId,
-        nodeId: question.nodeId,
-        question:
-          'Should sovereign AI demand be its own branch, instead of buried inside hyperscaler capex?',
-        source: 'Synthesis AI',
-        urgency: 'high',
-        status: 'open',
-        createdBy: ctx.sender,
-        createdAt: ctx.timestamp,
-        expiresAt: undefined,
-      });
-    }
-
-    const existingTask = first(ctx.db.agentTask.roomId.filter(seededRoom.roomId));
-    const task = existingTask ?? ctx.db.agentTask.insert({
-      taskId: 0n,
-      roomId: seededRoom.roomId,
-      nodeId: question.nodeId,
-      taskType: 'research',
-      instructions: 'Check whether sovereign AI demand should be modeled separately.',
-      status: 'queued',
-      priority: 1,
-      resultSummary: '',
-      createdBy: ctx.sender,
-      claimedBy: undefined,
-      createdAt: ctx.timestamp,
-      claimedAt: undefined,
-      completedAt: undefined,
+    ctx.db.cursor.cursorId.update({
+      ...existing,
+      displayName: name,
+      x,
+      y,
       updatedAt: ctx.timestamp,
     });
-
-    upsertSeedFocus(ctx, seededRoom.roomId, root.nodeId, root.title);
-
-    touchRoom(ctx, seededRoom.roomId);
-    emitRoomEvent(
-      ctx,
-      seededRoom.roomId,
-      'demo_room_seeded',
-      'Demo room seeded',
-      root.nodeId,
-      task.taskId
-    );
   }
 );
+
+export const upsertAgentWorker = spacetimedb.reducer(
+  {
+    roomId: t.u64(),
+    name: t.string(),
+    persona: t.string(),
+    status: t.string(),
+    detail: t.string(),
+    currentTaskId: t.option(t.u64()),
+    currentNodeId: t.option(t.u64()),
+    completedCount: t.u32(),
+  },
+  (ctx, { roomId, name, persona, status, detail, currentTaskId, currentNodeId, completedCount }) => {
+    requireRoom(ctx, roomId);
+    const workerName = cleanText(name, 'Agent');
+    const existing = first(ctx.db.agentWorker.by_room_name.filter([roomId, workerName]));
+
+    if (existing === undefined) {
+      ctx.db.agentWorker.insert({
+        workerId: 0n,
+        roomId,
+        name: workerName,
+        persona: cleanText(persona, 'research'),
+        status: cleanText(status, 'idle'),
+        detail: cleanText(detail, ''),
+        currentTaskId,
+        currentNodeId,
+        completedCount,
+        updatedAt: ctx.timestamp,
+      });
+      return;
+    }
+
+    ctx.db.agentWorker.workerId.update({
+      ...existing,
+      persona: cleanText(persona, existing.persona),
+      status: cleanText(status, existing.status),
+      detail: cleanText(detail, existing.detail),
+      currentTaskId,
+      currentNodeId,
+      completedCount,
+      updatedAt: ctx.timestamp,
+    });
+  }
+);
+

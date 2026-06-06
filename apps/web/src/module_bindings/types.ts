@@ -45,6 +45,31 @@ export const AgentTask = __t.object("AgentTask", {
 });
 export type AgentTask = __Infer<typeof AgentTask>;
 
+export const AgentWorker = __t.object("AgentWorker", {
+  workerId: __t.u64(),
+  roomId: __t.u64(),
+  name: __t.string(),
+  persona: __t.string(),
+  status: __t.string(),
+  detail: __t.string(),
+  currentTaskId: __t.option(__t.u64()),
+  currentNodeId: __t.option(__t.u64()),
+  completedCount: __t.u32(),
+  updatedAt: __t.timestamp(),
+});
+export type AgentWorker = __Infer<typeof AgentWorker>;
+
+export const Cursor = __t.object("Cursor", {
+  cursorId: __t.u64(),
+  roomId: __t.u64(),
+  identity: __t.identity(),
+  displayName: __t.string(),
+  x: __t.f64(),
+  y: __t.f64(),
+  updatedAt: __t.timestamp(),
+});
+export type Cursor = __Infer<typeof Cursor>;
+
 export const Finding = __t.object("Finding", {
   findingId: __t.u64(),
   roomId: __t.u64(),

@@ -46,9 +46,10 @@ import CreateMapNodeReducer from "./create_map_node_reducer";
 import CreateQuestionCandidateReducer from "./create_question_candidate_reducer";
 import CreateRoomReducer from "./create_room_reducer";
 import JoinRoomReducer from "./join_room_reducer";
-import SeedDemoRoomReducer from "./seed_demo_room_reducer";
 import SetRoomFocusReducer from "./set_room_focus_reducer";
+import UpdateCursorReducer from "./update_cursor_reducer";
 import UpdateMapNodeReducer from "./update_map_node_reducer";
+import UpsertAgentWorkerReducer from "./upsert_agent_worker_reducer";
 import UpsertParticipantReducer from "./upsert_participant_reducer";
 
 // Import all procedure arg schemas
@@ -56,6 +57,8 @@ import UpsertParticipantReducer from "./upsert_participant_reducer";
 // Import all table schema definitions
 import AgentOutputRow from "./agent_output_table";
 import AgentTaskRow from "./agent_task_table";
+import AgentWorkerRow from "./agent_worker_table";
+import CursorRow from "./cursor_table";
 import FindingRow from "./finding_table";
 import MapEdgeRow from "./map_edge_table";
 import MapNodeRow from "./map_node_table";
@@ -105,6 +108,42 @@ const tablesSchema = __schema({
       { name: 'agent_task_task_id_key', constraint: 'unique', columns: ['taskId'] },
     ],
   }, AgentTaskRow),
+  agentWorker: __table({
+    name: 'agent_worker',
+    indexes: [
+      { accessor: 'roomId', name: 'agent_worker_room_id_idx_btree', algorithm: 'btree', columns: [
+        'roomId',
+      ] },
+      { accessor: 'by_room_name', name: 'agent_worker_room_id_name_idx_btree', algorithm: 'btree', columns: [
+        'roomId',
+        'name',
+      ] },
+      { accessor: 'workerId', name: 'agent_worker_worker_id_idx_btree', algorithm: 'btree', columns: [
+        'workerId',
+      ] },
+    ],
+    constraints: [
+      { name: 'agent_worker_worker_id_key', constraint: 'unique', columns: ['workerId'] },
+    ],
+  }, AgentWorkerRow),
+  cursor: __table({
+    name: 'cursor',
+    indexes: [
+      { accessor: 'cursorId', name: 'cursor_cursor_id_idx_btree', algorithm: 'btree', columns: [
+        'cursorId',
+      ] },
+      { accessor: 'by_room_identity', name: 'cursor_room_id_identity_idx_btree', algorithm: 'btree', columns: [
+        'roomId',
+        'identity',
+      ] },
+      { accessor: 'roomId', name: 'cursor_room_id_idx_btree', algorithm: 'btree', columns: [
+        'roomId',
+      ] },
+    ],
+    constraints: [
+      { name: 'cursor_cursor_id_key', constraint: 'unique', columns: ['cursorId'] },
+    ],
+  }, CursorRow),
   finding: __table({
     name: 'finding',
     indexes: [
@@ -305,9 +344,10 @@ const reducersSchema = __reducers(
   __reducerSchema("create_question_candidate", CreateQuestionCandidateReducer),
   __reducerSchema("create_room", CreateRoomReducer),
   __reducerSchema("join_room", JoinRoomReducer),
-  __reducerSchema("seed_demo_room", SeedDemoRoomReducer),
   __reducerSchema("set_room_focus", SetRoomFocusReducer),
+  __reducerSchema("update_cursor", UpdateCursorReducer),
   __reducerSchema("update_map_node", UpdateMapNodeReducer),
+  __reducerSchema("upsert_agent_worker", UpsertAgentWorkerReducer),
   __reducerSchema("upsert_participant", UpsertParticipantReducer),
 );
 

@@ -13,9 +13,9 @@ The demo must show multiple browsers sharing one consistent room state while a l
 3. Host Mic creates live transcript chunks and explicitly starts silent agents.
 4. The map updates for everyone through SpacetimeDB as the gateway writes reducer events.
 5. A researchable node triggers an agent task.
-6. The agent uses Exa or mock research depending on demo constraints.
+6. The agent swarm uses Exa research (requires `EXA_API_KEY`; no mock fallback).
 7. The result appears as a connected finding on the shared map.
-8. A human clicks a node to focus the side rail and double-clicks to open the full thread.
+8. A human clicks a node to focus the inspector and see its real edges.
 
 ## MVP Decisions
 
@@ -117,10 +117,10 @@ Required:
 
 - SpacetimeDB module builds.
 - Web app connects to SpacetimeDB.
-- Two browser windows see the same fresh room.
+- Two browser windows see the same fresh room, including live cursors and presence.
 - User can add a shared note or node.
-- Agent gateway can fill a fresh room live from an explicit Host Mic processor trigger with a mock or real agent result.
-- Exa research path works when `EXA_API_KEY` exists.
+- Host Mic live routing fills a fresh room, and the agent swarm turns queued tasks into real findings.
+- Exa research path works and requires `EXA_API_KEY` (no mock fallback).
 
 Stretch:
 
