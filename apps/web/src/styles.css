@@ -350,6 +350,13 @@ main {
   font-weight: 760;
 }
 
+.you-label {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .you-btn:hover {
   border-color: var(--ring);
   color: var(--ink);

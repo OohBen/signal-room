@@ -33,7 +33,7 @@ export interface SignalRoomSnapshot {
 }
 
 const STORAGE_KEY = "signal-room.web.local-state.v1";
-const DEFAULT_DISPLAY_NAME = "You";
+const DEFAULT_DISPLAY_NAME_PREFIX = "Guest";
 
 function createId(prefix: string): string {
   if (globalThis.crypto?.randomUUID) {
@@ -52,10 +52,28 @@ function readPersistedState(): Partial<PersistedRoomState> {
   }
 }
 
+function createGuestDisplayName(): string {
+  const bytes = new Uint8Array(2);
+  const cryptoApi = globalThis.crypto;
+  const suffix = cryptoApi
+    ? Array.from(cryptoApi.getRandomValues(bytes))
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("")
+        .toUpperCase()
+    : Date.now().toString(36).slice(-4).toUpperCase();
+  return `${DEFAULT_DISPLAY_NAME_PREFIX} ${suffix}`;
+}
+
+function normalizeDisplayName(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed === "You") return undefined;
+  return trimmed;
+}
+
 function createInitialState(): SignalRoomState {
   const persisted = readPersistedState();
   const roomCode = getRequestedRoomCode();
-  const displayName = persisted.displayName?.trim() || DEFAULT_DISPLAY_NAME;
+  const displayName = normalizeDisplayName(persisted.displayName) ?? createGuestDisplayName();
   const blank = createBlankRoomState(roomCode, displayName);
 
   return {
@@ -232,7 +250,7 @@ export function useRoomState(): SignalRoomSnapshot {
   }, [live]);
 
   const setDisplayName = useCallback((displayName: string) => {
-    const normalized = displayName.trim() || DEFAULT_DISPLAY_NAME;
+    const normalized = displayName.trim() || createGuestDisplayName();
     setState((current) => ({ ...current, displayName: normalized }));
     void live.upsertParticipant(normalized, "online", focusNodeId).catch((error: unknown) => {
       console.error("Unable to sync participant", error);

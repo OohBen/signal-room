@@ -24,7 +24,13 @@ function readTheme(): Theme {
 // table is known on its first render, so the hook order is stable.
 export default function App() {
   const connection = useSpacetimeDB();
-  if (!connection.isActive) {
+  const [hasConnected, setHasConnected] = useState(connection.isActive);
+
+  useEffect(() => {
+    if (connection.isActive) setHasConnected(true);
+  }, [connection.isActive]);
+
+  if (!hasConnected) {
     return <ConnectingScreen error={connection.connectionError?.message} />;
   }
   return <RoomApp />;
@@ -83,6 +89,7 @@ function RoomApp() {
       roomQuestion={room.state.question}
       roomReady={room.adapterStatus.mode === "spacetime" && Boolean(room.adapterStatus.roomId)}
       theme={theme}
+      userDisplayName={room.state.displayName}
       presenceCount={room.state.presence.length}
       onLayoutChange={setLayout}
       onNewRoom={openNewRoom}

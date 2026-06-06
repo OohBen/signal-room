@@ -2,6 +2,7 @@ import { callReducer, jsonString, optionU64, parseSqlTable, querySql } from "../
 import { hasMapworthySignal } from "../spacetime/replayTranscript.js";
 
 const DEFAULT_DATABASE = "signal-room";
+const roomIdCache = new Map<string, bigint>();
 
 export interface RealtimeRoomContext {
   database?: string;
@@ -334,6 +335,10 @@ export async function readRealtimeRoomSnapshot(context: RealtimeRoomContext): Pr
 }
 
 async function ensureRoom(database: string, roomCode: string, displayName: string): Promise<bigint> {
+  const cacheKey = `${database}:${roomCode}`;
+  const cached = roomIdCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
   await ensureOk(
     await callReducer(database, "create_room", [
       jsonString(roomCode),
@@ -341,10 +346,14 @@ async function ensureRoom(database: string, roomCode: string, displayName: strin
       jsonString(displayName),
     ])
   );
-  const rows = parseSqlTable(await querySql(database, "SELECT room_id, code FROM room"));
+  const rows = parseSqlTable(
+    await querySql(database, `SELECT room_id, code FROM room WHERE code = ${sqlString(roomCode)}`)
+  );
   const match = rows.find((row) => row[1] === roomCode);
   if (!match) throw new Error(`Room ${roomCode} was not found after create_room`);
-  return BigInt(match[0]);
+  const roomId = BigInt(match[0]);
+  roomIdCache.set(cacheKey, roomId);
+  return roomId;
 }
 
 async function ensureRootNode(
@@ -573,7 +582,12 @@ async function createTask(
 }
 
 async function listNodes(database: string, roomId: bigint): Promise<NodeRef[]> {
-  const rows = parseSqlTable(await querySql(database, "SELECT node_id, room_id, title, summary, node_type, urgency FROM map_node"));
+  const rows = parseSqlTable(
+    await querySql(
+      database,
+      `SELECT node_id, room_id, title, summary, node_type, urgency FROM map_node WHERE room_id = ${roomId.toString()}`
+    )
+  );
   return rows
     .filter((row) => row[1] === roomId.toString())
     .map((row) => ({ id: BigInt(row[0]), title: row[2], summary: row[3], nodeType: row[4], urgency: row[5] }));
@@ -587,17 +601,23 @@ async function resolveNodeByTitle(database: string, roomId: bigint, title: strin
 }
 
 async function transcriptChunkExists(database: string, roomId: bigint, text: string): Promise<boolean> {
-  const rows = parseSqlTable(await querySql(database, "SELECT room_id, text FROM transcript_chunk"));
+  const rows = parseSqlTable(
+    await querySql(database, `SELECT room_id, text FROM transcript_chunk WHERE room_id = ${roomId.toString()}`)
+  );
   return rows.some((row) => row[0] === roomId.toString() && row[1] === text);
 }
 
 async function questionExists(database: string, roomId: bigint, question: string): Promise<boolean> {
-  const rows = parseSqlTable(await querySql(database, "SELECT room_id, question FROM question_candidate"));
+  const rows = parseSqlTable(
+    await querySql(database, `SELECT room_id, question FROM question_candidate WHERE room_id = ${roomId.toString()}`)
+  );
   return rows.some((row) => row[0] === roomId.toString() && row[1] === question);
 }
 
 async function taskExists(database: string, roomId: bigint, instructions: string): Promise<boolean> {
-  const rows = parseSqlTable(await querySql(database, "SELECT room_id, instructions FROM agent_task"));
+  const rows = parseSqlTable(
+    await querySql(database, `SELECT room_id, instructions FROM agent_task WHERE room_id = ${roomId.toString()}`)
+  );
   return rows.some((row) => row[0] === roomId.toString() && row[1] === instructions);
 }
 
@@ -747,4 +767,8 @@ function optionString(value: string | undefined): string {
 
 function optionF64(value: number | undefined): string {
   return value === undefined ? '{"none":{}}' : `{"some":${value.toString()}}`;
+}
+
+function sqlString(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
 }

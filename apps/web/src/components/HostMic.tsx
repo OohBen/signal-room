@@ -61,6 +61,9 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   const researchingRef = useRef(false);
   const startTimeoutRef = useRef<number | undefined>(undefined);
   const stopCloseTimerRef = useRef<number | undefined>(undefined);
+  const reconnectTimerRef = useRef<number | undefined>(undefined);
+  const reconnectAttemptsRef = useRef(0);
+  const captureShouldRunRef = useRef(false);
   const stopRequestedRef = useRef(false);
   const sharedRoomReady = adapterStatus.mode === "spacetime" && Boolean(adapterStatus.roomId);
 
@@ -109,6 +112,8 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
 
     setVoiceStarting(true);
     setVoiceStatus("Requesting microphone");
+    captureShouldRunRef.current = true;
+    reconnectAttemptsRef.current = 0;
     stopRequestedRef.current = false;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -118,48 +123,74 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
           noiseSuppression: true,
         },
       });
-      const socket = new WebSocket(buildGatewayWebSocketUrl());
       audioStreamRef.current = stream;
-      audioSocketRef.current = socket;
-
-      startTimeoutRef.current = window.setTimeout(() => {
-        onToast("Realtime voice session did not start");
-        stopRealtimeCapture(false);
-      }, 10_000);
-
-      socket.onopen = () => {
-        setVoiceStatus("Starting Realtime transcription");
-        socket.send(
-          JSON.stringify({
-            type: "session_start",
-            roomCode: state.roomCode,
-            displayName: state.displayName,
-            database: SPACETIME_DATABASE,
-            contextTranscript: buildTranscriptContext(""),
-          })
-        );
-      };
-      socket.onmessage = (event) => {
-        void handleRealtimeSocketMessage(event.data, stream, socket);
-      };
-      socket.onerror = () => {
-        onToast("Realtime voice socket failed");
-        stopRealtimeCapture(false);
-      };
-      socket.onclose = () => {
-        if (audioSocketRef.current !== socket) return;
-        stopRealtimeCapture(false);
-        setVoiceStatus("Realtime voice closed");
-      };
+      openRealtimeSocket(stream);
     } catch (error: unknown) {
       stopRealtimeCapture(false);
       onToast(error instanceof Error ? error.message : "Could not start host mic");
     }
   }
 
+  function openRealtimeSocket(stream: MediaStream) {
+    clearStartTimeout();
+    clearReconnectTimer();
+    const socket = new WebSocket(buildGatewayWebSocketUrl());
+    audioSocketRef.current = socket;
+
+    startTimeoutRef.current = window.setTimeout(() => {
+      if (audioSocketRef.current !== socket) return;
+      setVoiceStatus("Realtime session reconnecting");
+      socket.close();
+    }, 10_000);
+
+    socket.onopen = () => {
+      reconnectAttemptsRef.current = 0;
+      setVoiceStatus("Starting Realtime transcription");
+      socket.send(
+        JSON.stringify({
+          type: "session_start",
+          roomCode: state.roomCode,
+          displayName: state.displayName,
+          database: SPACETIME_DATABASE,
+          contextTranscript: buildTranscriptContext(""),
+        })
+      );
+    };
+    socket.onmessage = (event) => {
+      void handleRealtimeSocketMessage(event.data, stream, socket);
+    };
+    socket.onerror = () => {
+      if (audioSocketRef.current !== socket) return;
+      setVoiceStatus("Realtime socket reconnecting");
+      socket.close();
+    };
+    socket.onclose = () => {
+      if (audioSocketRef.current !== socket) return;
+      clearStartTimeout();
+      audioSocketRef.current = null;
+      if (captureShouldRunRef.current && !stopRequestedRef.current && streamHasLiveTrack(stream)) {
+        scheduleRealtimeReconnect(stream, "Realtime socket reconnecting");
+        return;
+      }
+      stopRealtimeCapture(false);
+      setVoiceStatus("Realtime voice closed");
+    };
+  }
+
   async function handleRealtimeSocketMessage(raw: unknown, stream: MediaStream, socket: WebSocket) {
     const payload = parseRealtimeSocketMessage(raw);
     if (payload.type === "ready") return;
+
+    if (payload.type === "closed") {
+      if (captureShouldRunRef.current && !stopRequestedRef.current && streamHasLiveTrack(stream)) {
+        setVoiceStatus("Realtime upstream reconnecting");
+        socket.close();
+        return;
+      }
+      stopRealtimeCapture(false);
+      setVoiceStatus("Realtime voice closed");
+      return;
+    }
 
     if (payload.type === "operator_error") {
       onToast(payload.message || "Realtime room operator failed");
@@ -181,7 +212,18 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     }
 
     if (payload.ok === false || payload.type === "error") {
-      onToast(payload.message || "Realtime voice failed");
+      const message = payload.message || "Realtime voice failed";
+      if (
+        captureShouldRunRef.current &&
+        !stopRequestedRef.current &&
+        streamHasLiveTrack(stream) &&
+        isRecoverableRealtimeError(message)
+      ) {
+        setVoiceStatus("Realtime voice reconnecting");
+        socket.close();
+        return;
+      }
+      onToast(message);
       stopRealtimeCapture(false);
       return;
     }
@@ -189,7 +231,9 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     if (payload.type === "session_started") {
       clearStartTimeout();
       try {
-        await startRealtimeAudioGraph(stream, socket);
+        if (!audioContextRef.current) {
+          await startRealtimeAudioGraph(stream);
+        }
         setListening(true);
         setVoiceStarting(false);
         setVoiceStatus("Listening live");
@@ -229,7 +273,7 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     }
   }
 
-  async function startRealtimeAudioGraph(stream: MediaStream, socket: WebSocket) {
+  async function startRealtimeAudioGraph(stream: MediaStream) {
     const AudioContextCtor = getAudioContextConstructor();
     if (!AudioContextCtor) {
       throw new Error("AudioContext is unavailable in this browser");
@@ -248,7 +292,7 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
       numberOfOutputs: 1,
       outputChannelCount: [1],
       processorOptions: {
-        frameSamples: 2400,
+        frameSamples: 1200,
         targetRate: 24000,
       },
     });
@@ -256,7 +300,8 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     mutedOutput.gain.value = 0;
 
     worklet.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
-      if (socket.readyState !== WebSocket.OPEN) return;
+      const socket = audioSocketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
       const audioBase64 = bytesToBase64(new Uint8Array(event.data));
       socket.send(JSON.stringify({ type: "audio_pcm", audioBase64 }));
     };
@@ -277,6 +322,8 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   }
 
   function finishRealtimeCapture(showToast: boolean) {
+    captureShouldRunRef.current = false;
+    clearReconnectTimer();
     clearStartTimeout();
     stopAudioGraph();
     audioStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -299,8 +346,10 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   }
 
   function stopRealtimeCapture(showToast: boolean) {
+    captureShouldRunRef.current = false;
     clearStartTimeout();
     clearStopCloseTimer();
+    clearReconnectTimer();
     const socket = audioSocketRef.current;
     audioSocketRef.current = null;
     if (socket && socket.readyState === WebSocket.OPEN) {
@@ -318,6 +367,36 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     setVoiceStarting(false);
     setInterim("");
     setVoiceStatus("Mic idle");
+  }
+
+  function scheduleRealtimeReconnect(stream: MediaStream, status: string) {
+    if (!captureShouldRunRef.current || stopRequestedRef.current || !streamHasLiveTrack(stream)) {
+      stopRealtimeCapture(false);
+      setVoiceStatus("Realtime voice closed");
+      return;
+    }
+
+    clearStartTimeout();
+    clearReconnectTimer();
+    const attempt = reconnectAttemptsRef.current + 1;
+    reconnectAttemptsRef.current = attempt;
+    if (attempt > 6) {
+      onToast("Realtime voice disconnected");
+      stopRealtimeCapture(false);
+      return;
+    }
+
+    const delayMs = Math.min(3000, 400 * attempt);
+    setListening(Boolean(audioContextRef.current));
+    setVoiceStarting(!audioContextRef.current);
+    setVoiceStatus(status);
+    reconnectTimerRef.current = window.setTimeout(() => {
+      if (!captureShouldRunRef.current || stopRequestedRef.current || !streamHasLiveTrack(stream)) {
+        stopRealtimeCapture(false);
+        return;
+      }
+      openRealtimeSocket(stream);
+    }, delayMs);
   }
 
   function stopAudioGraph() {
@@ -344,6 +423,13 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     if (stopCloseTimerRef.current !== undefined) {
       window.clearTimeout(stopCloseTimerRef.current);
       stopCloseTimerRef.current = undefined;
+    }
+  }
+
+  function clearReconnectTimer() {
+    if (reconnectTimerRef.current !== undefined) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = undefined;
     }
   }
 
@@ -642,6 +728,16 @@ function bytesToBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
   }
   return btoa(binary);
+}
+
+function streamHasLiveTrack(stream: MediaStream): boolean {
+  return stream.getAudioTracks().some((track) => track.readyState === "live");
+}
+
+function isRecoverableRealtimeError(message: string): boolean {
+  return /\b(?:close|closed|disconnect|disconnected|socket|network|timeout|timed out|buffer too small|commit_empty)\b/i.test(
+    message
+  );
 }
 
 function hasMapworthySignal(transcript: string): boolean {

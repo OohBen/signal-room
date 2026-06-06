@@ -9,6 +9,7 @@ interface AppShellProps {
   roomQuestion: string;
   roomReady: boolean;
   theme: "dark" | "light";
+  userDisplayName: string;
   presenceCount: number;
   onLayoutChange: (layout: WorkspaceLayout) => void;
   onNewRoom: () => void;
@@ -28,6 +29,7 @@ export function AppShell({
   roomQuestion,
   roomReady,
   theme,
+  userDisplayName,
   presenceCount,
   onLayoutChange,
   onNewRoom,
@@ -36,6 +38,8 @@ export function AppShell({
   children,
 }: AppShellProps) {
   const hereCount = Math.max(1, presenceCount);
+  const userLabel = userDisplayName.trim() || "Guest";
+  const userInitial = userLabel.slice(0, 1).toUpperCase() || "G";
 
   return (
     <div className="app">
@@ -80,8 +84,8 @@ export function AppShell({
         </nav>
 
         <button className="you-btn" type="button" onClick={onPrivateOpen}>
-          <span className="avatar human sm">B</span>
-          You
+          <span className="avatar human sm">{userInitial}</span>
+          <span className="you-label">{userLabel}</span>
         </button>
 
         <button className="icon-btn" type="button" onClick={onNewRoom} title="New live room">
