@@ -247,12 +247,14 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
       roomCode: message.roomCode,
       displayName: message.displayName,
     };
+    logRealtime("session_start", { roomCode: roomContext.roomCode, model, transcriptionModel });
     realtime = await OpenAIRealtimeWS.create(client, { model });
 
     realtime.on("event", (event) => {
       handleRealtimeEvent(event as unknown as { type?: string; [key: string]: unknown }, transcriptionModel);
     });
     realtime.on("error", (error) => {
+      logRealtime("upstream_error", { roomCode: roomContext.roomCode, message: error.message });
       if (
         closeAfterNextTranscript &&
         (error.message.includes("buffer too small") || error.message.includes("commit_empty"))
@@ -329,6 +331,7 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
       transcriptionPending = false;
       const text = typeof event.transcript === "string" ? event.transcript.trim() : "";
       if (text) {
+        logRealtime("transcript_final", { roomCode: roomContext.roomCode, words: text.split(/\s+/).length });
         writeClient(clientSocket, {
           ok: true,
           type: "transcript_final",
@@ -410,6 +413,14 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
     }
 
     if (event.type === "response.done") {
+      const response = event.response as { status?: string; status_details?: unknown } | undefined;
+      logRealtime("operator_response_done", {
+        roomCode: roomContext.roomCode,
+        status: response?.status,
+        statusDetails: response?.status_details,
+        pendingToolCalls,
+        operatorMutationCount,
+      });
       operatorResponseDone = true;
       finishOperatorIfSettled();
     }
@@ -464,6 +475,12 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
       input.snapshot.nodes.length === 0 && shouldRunRealtimeOperator(input.latestTranscript)
         ? { type: "function", name: "add_map_signal" }
         : "required";
+    logRealtime("operator_start", {
+      roomCode: roomContext.roomCode,
+      nodes: input.snapshot.nodes.length,
+      toolChoice,
+      words: input.latestTranscript.split(/\s+/).length,
+    });
 
     realtime.send({
       type: "response.create",
@@ -493,6 +510,15 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
 
   async function executeRealtimeTool(toolName: string, rawArguments: string): Promise<void> {
     const result = await handleRealtimeRoomTool(roomContext, toolName, rawArguments);
+    logRealtime("operator_tool_result", {
+      roomCode: roomContext.roomCode,
+      toolName,
+      action: result.action,
+      ok: result.ok,
+      skipped: result.skipped,
+      message: result.message,
+      nodeId: result.nodeId,
+    });
     if (result.ok && !result.skipped && result.action !== "ignore_turn") {
       operatorMutationCount += 1;
     }
@@ -575,6 +601,10 @@ export function attachRealtimeAudioSocket(clientSocket: WebSocket): void {
       realtime = undefined;
     }
   }
+}
+
+function logRealtime(event: string, details: Record<string, unknown>): void {
+  console.log(JSON.stringify({ event: `realtime_${event}`, ...details }));
 }
 
 function parseRealtimeClientMessage(data: RawData): RealtimeClientMessage {
