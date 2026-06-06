@@ -6,7 +6,6 @@ import {
   useState,
   type CSSProperties,
   type PointerEvent,
-  type WheelEvent,
 } from "react";
 import type { CursorPin, MapEdge, MapNode, PresencePin } from "../types/signalRoom";
 import { Avatar } from "./Primitives";
@@ -142,15 +141,6 @@ export function RoomMap({
     }
   }
 
-  function handleWheel(event: WheelEvent<HTMLDivElement>) {
-    if (!event.ctrlKey && !event.metaKey && !event.altKey) {
-      return;
-    }
-
-    event.preventDefault();
-    zoomAtPoint(event.currentTarget, event.clientX, event.clientY, Math.exp(-event.deltaY * 0.0014));
-  }
-
   function zoomBy(factor: number) {
     const viewport = viewportRef.current;
     if (!viewport) {
@@ -175,6 +165,22 @@ export function RoomMap({
     });
   }
 
+  // Ctrl/meta/alt + wheel = zoom. Attach a NON-passive native listener so
+  // preventDefault works without React's passive-listener console warning.
+  const zoomAtPointRef = useRef(zoomAtPoint);
+  zoomAtPointRef.current = zoomAtPoint;
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey && !event.altKey) return;
+      event.preventDefault();
+      zoomAtPointRef.current(viewport, event.clientX, event.clientY, Math.exp(-event.deltaY * 0.0014));
+    };
+    viewport.addEventListener("wheel", onWheel, { passive: false });
+    return () => viewport.removeEventListener("wheel", onWheel);
+  }, []);
+
   return (
     <div
       className="map-viewport infinite"
@@ -183,7 +189,6 @@ export function RoomMap({
       onPointerMove={handlePointerMove}
       onPointerUp={endPan}
       onPointerLeave={endPan}
-      onWheel={handleWheel}
     >
       <div
         className="map-scroll-space"
