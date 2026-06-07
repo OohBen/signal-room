@@ -2621,8 +2621,8 @@ a.evidence-title:hover {
 .map-edges .edge-group .lit {
   fill: none;
   stroke: color-mix(in srgb, var(--edge) 70%, var(--accent));
-  stroke-width: 1.6;
-  opacity: 0.32;
+  stroke-width: 1.8;
+  opacity: 0.52;
   transition: stroke 0.2s ease, opacity 0.2s ease;
 }
 
@@ -2633,11 +2633,11 @@ a.evidence-title:hover {
 }
 
 .map-edges .edge-group.dim {
-  opacity: 0.14;
+  opacity: 0.42;
 }
 
 .edge-label-group {
-  opacity: 0.45;
+  opacity: 0.9;
   transition: opacity 0.2s ease;
 }
 
@@ -2646,19 +2646,19 @@ a.evidence-title:hover {
 }
 
 .edge-group.dim .edge-label-group {
-  opacity: 0.12;
+  opacity: 0.72;
 }
 
 .edge-label-group rect {
-  fill: color-mix(in srgb, var(--panel-solid) 88%, transparent);
-  stroke: none;
+  fill: color-mix(in srgb, var(--panel-solid) 94%, transparent);
+  stroke: var(--line);
 }
 
 .edge-label {
-  fill: var(--faint);
+  fill: var(--ink-2);
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 850;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   stroke: none;

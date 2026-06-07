@@ -69,8 +69,14 @@ type DraftNodePositions = Record<string, { x: number; y: number }>;
 
 const STAGE_W = 18000;
 const STAGE_H = 12000;
-const CX = 1800;
-const CY = 1200;
+const CX = STAGE_W / 2;
+const CY = STAGE_H / 2;
+const LEGACY_STAGE_W = 3600;
+const LEGACY_STAGE_H = 2400;
+const LEGACY_CX = LEGACY_STAGE_W / 2;
+const LEGACY_CY = LEGACY_STAGE_H / 2;
+const LEGACY_OFFSET_X = CX - LEGACY_CX;
+const LEGACY_OFFSET_Y = CY - LEGACY_CY;
 const MIN_ZOOM = 0.38;
 const MAX_ZOOM = 2.4;
 const SNAP_GRID = 24;
@@ -124,9 +130,10 @@ export function RoomMap({
     const rect = viewport.getBoundingClientRect();
     const availableWidth = Math.max(rect.width - insetLeft - insetRight, 220);
     const availableHeight = Math.max(rect.height - 120, 220);
-    const target = viewportTargetBounds(layoutRef.current);
-    const targetWidth = Math.max(1, target.right - target.left);
-    const targetHeight = Math.max(1, target.bottom - target.top);
+    const layoutBoundsTarget = viewportTargetBounds(layoutRef.current);
+    const target = viewportRootTarget(layoutRef.current) ?? layoutBoundsTarget;
+    const targetWidth = Math.max(1, layoutBoundsTarget.right - layoutBoundsTarget.left);
+    const targetHeight = Math.max(1, layoutBoundsTarget.bottom - layoutBoundsTarget.top);
     const fitZoom = Math.min(availableWidth / (targetWidth + 420), availableHeight / (targetHeight + 280));
     const nextZoom = Math.min(1, Math.max(MIN_ZOOM, fitZoom));
     setZoom(nextZoom);
@@ -533,11 +540,18 @@ function layoutMapNodes(nodes: MapNode[], edges: MapEdge[], draftNodePositions: 
       const draft = draftNodePositions[positioned.node.id];
       if (draft) return { ...positioned, x: draft.x, y: draft.y };
       if (hasExplicitPosition(positioned.node)) {
-        return { ...positioned, x: positioned.node.x, y: positioned.node.y };
+        return { ...positioned, ...stagePosition(positioned.node) };
       }
       return positioned;
     }),
   };
+}
+
+function stagePosition(node: MapNode & { x: number; y: number }): { x: number; y: number } {
+  if (node.x <= LEGACY_STAGE_W && node.y <= LEGACY_STAGE_H) {
+    return { x: node.x + LEGACY_OFFSET_X, y: node.y + LEGACY_OFFSET_Y };
+  }
+  return { x: node.x, y: node.y };
 }
 
 function createCleanLayoutPatches(nodes: MapNode[], edges: MapEdge[], currentLayout: PositionedNode[]): LayoutPositionPatch[] {
@@ -899,6 +913,11 @@ function viewportTargetBounds(layout: PositionedNode[]): NonNullable<ReturnType<
       bottom: CY + 500,
     }
   );
+}
+
+function viewportRootTarget(layout: PositionedNode[]): Pick<NonNullable<ReturnType<typeof layoutBounds>>, "centerX" | "centerY"> | undefined {
+  const root = layout.find((positioned) => positioned.node.isRoot) ?? layout[0];
+  return root ? { centerX: root.x, centerY: root.y } : undefined;
 }
 
 function separateOverlappingNodes(layout: PositionedNode[], lockedNodeId: string): PositionedNode[] {
