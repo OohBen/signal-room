@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Web Speech API — live transcription test</title>
+    <style>
+      :root {
+        --bg: #0d1320; --panel: #161f30; --line: #273248; --ink: #eef3fb;
+        --muted: #93a1b5; --accent: #5a9cff; --green: #36d399; --amber: #f0b54e; --red: #ff6b6b;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink);
+        font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        padding: 24px; max-width: 920px; margin: 0 auto;
+      }
+      h1 { font-size: 22px; margin: 0 0 4px; }
+      .sub { color: var(--muted); margin: 0 0 20px; font-size: 13px; }
+      .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+      button {
+        appearance: none; border: 0; border-radius: 10px; padding: 12px 22px; font-size: 15px;
+        font-weight: 700; cursor: pointer; color: #06101f; background: var(--accent);
+      }
+      button.stop { background: var(--red); color: #fff; }
+      button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+      button:disabled { opacity: 0.5; cursor: default; }
+      .pill { display: inline-flex; align-items: center; gap: 7px; padding: 7px 13px; border-radius: 999px;
+        border: 1px solid var(--line); background: var(--panel); font-size: 13px; font-weight: 600; }
+      .dot { width: 9px; height: 9px; border-radius: 999px; background: var(--muted); }
+      .dot.on { background: var(--green); box-shadow: 0 0 0 0 rgba(54,211,153,.6); animation: p 1.3s infinite; }
+      @keyframes p { 70% { box-shadow: 0 0 0 8px rgba(54,211,153,0); } }
+      .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+      .metric { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+      .metric b { display: block; font-size: 24px; font-family: ui-monospace, monospace; }
+      .metric span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; font-weight: 700; }
+      .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; font-weight: 800; margin: 18px 0 6px; }
+      .box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-height: 56px; }
+      #interim { color: var(--amber); font-size: 18px; min-height: 28px; }
+      #final { white-space: pre-wrap; line-height: 1.65; }
+      #final .seg { display: block; padding: 2px 0; }
+      #final .seg .t { color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; margin-right: 8px; }
+      .warn { color: var(--amber); }
+      .err { color: var(--red); }
+      .hint { color: var(--muted); font-size: 12px; margin-top: 16px; }
+      code { background: #0a1322; padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <h1>Web Speech API — live transcription test</h1>
+    <p class="sub">Browser-native, free, no server. Use Chrome (or Edge). Tests accuracy + how fast words appear. For Signal Room: if this is good enough, mic transcription happens in your browser and only text goes to the gateway (kills the unstable audio WebSocket).</p>
+
+    <div class="row">
+      <button id="start">▶ Start mic</button>
+      <button id="stop" class="stop" disabled>■ Stop</button>
+      <button id="clear" class="ghost">Clear</button>
+      <span class="pill"><span id="statusDot" class="dot"></span><span id="statusText">Idle</span></span>
+    </div>
+
+    <div class="metrics">
+      <div class="metric"><b id="mSession">0.0s</b><span>session time</span></div>
+      <div class="metric"><b id="mSegs">0</b><span>final segments</span></div>
+      <div class="metric"><b id="mWords">0</b><span>total words</span></div>
+      <div class="metric"><b id="mLatency">—</b><span>last finalize latency</span></div>
+      <div class="metric"><b id="mInterim">—</b><span>first-word latency</span></div>
+    </div>
+
+    <div class="label">Live (interim — updates as you speak)</div>
+    <div class="box"><span id="interim"></span></div>
+
+    <div class="label">Final transcript</div>
+    <div class="box"><div id="final"></div></div>
+
+    <p class="hint" id="support"></p>
+    <p class="hint">Tip: talk normally, pause, talk again. Watch how fast the amber interim text appears (that's the real "feel") and whether the final text is accurate. Try names, numbers, and "hey agent, look up the latest oil prices."</p>
+
+    <script>
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const startBtn = document.getElementById("start");
+      const stopBtn = document.getElementById("stop");
+      const clearBtn = document.getElementById("clear");
+      const statusDot = document.getElementById("statusDot");
+      const statusText = document.getElementById("statusText");
+      const interimEl = document.getElementById("interim");
+      const finalEl = document.getElementById("final");
+      const support = document.getElementById("support");
+      const mSession = document.getElementById("mSession");
+      const mSegs = document.getElementById("mSegs");
+      const mWords = document.getElementById("mWords");
+      const mLatency = document.getElementById("mLatency");
+      const mInterim = document.getElementById("mInterim");
+
+      if (!SR) {
+        support.innerHTML = '<span class="err">This browser does NOT support the Web Speech API. Use Chrome or Edge on desktop/Android. (Not supported in Firefox or iOS Safari.)</span>';
+        startBtn.disabled = true;
+      } else {
+        support.innerHTML = 'Web Speech API is available in this browser. <code>' + (window.SpeechRecognition ? "SpeechRecognition" : "webkitSpeechRecognition") + '</code>';
+      }
+
+      let recognition = null;
+      let running = false;
+      let segments = 0;
+      let words = 0;
+      let sessionStart = 0;
+      let speechStartedAt = 0;        // when current utterance began
+      let firstWordLatencies = [];    // speechStart -> first interim
+      let gotInterimThisUtterance = false;
+      let timer = null;
+
+      function setStatus(text, on) {
+        statusText.textContent = text;
+        statusDot.className = "dot" + (on ? " on" : "");
+      }
+      function avg(a) { return a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null; }
+      function tick() {
+        if (sessionStart) mSession.textContent = ((performance.now() - sessionStart) / 1000).toFixed(1) + "s";
+      }
+
+      function build() {
+        const r = new SR();
+        r.continuous = true;
+        r.interimResults = true;
+        r.lang = "en-US";
+        r.maxAlternatives = 1;
+
+        r.onstart = () => setStatus("Listening…", true);
+        r.onaudiostart = () => { /* mic live */ };
+        r.onspeechstart = () => { speechStartedAt = performance.now(); gotInterimThisUtterance = false; };
+
+        r.onresult = (event) => {
+          let interim = "";
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const res = event.results[i];
+            const txt = res[0].transcript;
+            if (res.isFinal) {
+              const now = performance.now();
+              if (speechStartedAt) {
+                mLatency.textContent = Math.round(now - speechStartedAt) + "ms";
+              }
+              segments++;
+              words += txt.trim().split(/\s+/).filter(Boolean).length;
+              const t = new Date().toLocaleTimeString();
+              const seg = document.createElement("span");
+              seg.className = "seg";
+              seg.innerHTML = '<span class="t">' + t + '</span>' + escapeHtml(txt.trim());
+              finalEl.appendChild(seg);
+              finalEl.parentElement.scrollTop = finalEl.parentElement.scrollHeight;
+              mSegs.textContent = segments;
+              mWords.textContent = words;
+            } else {
+              interim += txt;
+              if (!gotInterimThisUtterance && speechStartedAt) {
+                gotInterimThisUtterance = true;
+                firstWordLatencies.push(performance.now() - speechStartedAt);
+                mInterim.textContent = avg(firstWordLatencies) + "ms avg";
+              }
+            }
+          }
+          interimEl.textContent = interim;
+        };
+
+        r.onerror = (e) => {
+          if (e.error === "no-speech" || e.error === "aborted") return;
+          setStatus("Error: " + e.error, false);
+          support.innerHTML = '<span class="warn">Recognition error: ' + e.error + (e.error === "not-allowed" ? " — allow microphone access." : "") + '</span>';
+        };
+
+        r.onend = () => {
+          // Web Speech stops itself after silence; for a meeting we auto-restart while running.
+          if (running) {
+            try { r.start(); } catch (_) { /* starting too fast — ignore */ }
+          } else {
+            setStatus("Idle", false);
+          }
+        };
+        return r;
+      }
+
+      function escapeHtml(s) {
+        return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+      }
+
+      startBtn.onclick = () => {
+        if (running) return;
+        recognition = build();
+        running = true;
+        sessionStart = performance.now();
+        timer = setInterval(tick, 100);
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        try { recognition.start(); } catch (_) {}
+      };
+      stopBtn.onclick = () => {
+        running = false;
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        if (timer) clearInterval(timer);
+        if (recognition) recognition.stop();
+        setStatus("Idle", false);
+        interimEl.textContent = "";
+      };
+      clearBtn.onclick = () => {
+        finalEl.innerHTML = "";
+        interimEl.textContent = "";
+        segments = 0; words = 0; firstWordLatencies = [];
+        mSegs.textContent = "0"; mWords.textContent = "0"; mLatency.textContent = "—"; mInterim.textContent = "—";
+      };
+    </script>
+  </body>
+</html>
