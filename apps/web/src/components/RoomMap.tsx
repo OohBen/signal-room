@@ -9,6 +9,7 @@ import {
   type PointerEvent,
 } from "react";
 import type { CursorPin, MapEdge, MapNode, PresencePin } from "../types/signalRoom";
+import { cleanInsight } from "../lib/cleanInsight";
 import { Avatar } from "./Primitives";
 
 interface RoomMapProps {
@@ -469,7 +470,7 @@ function MapNodeButton({
       : ready
         ? { label: "Insight ready", tone: "ready" as const }
         : statusForNode(node);
-  const body = ready && agent ? agent.insight : node.summary;
+  const body = ready && agent ? cleanInsight(agent.insight) : cleanInsight(node.summary) || node.summary;
 
   return (
     <button
@@ -748,12 +749,21 @@ interface ClusterAnchor {
 
 function slotForCluster(cluster: NodeCluster, clusterIndex: number, nodeIndex: number): { x: number; y: number } {
   const anchor = anchorForCluster(cluster.key, clusterIndex);
-  if (cluster.parentId) {
-    if (nodeIndex === 0) return { x: anchor.x, y: anchor.y };
-    return childSlot(anchor, nodeIndex - 1, cluster.nodes.length - 1);
-  }
+  const slot = cluster.parentId
+    ? nodeIndex === 0
+      ? { x: anchor.x, y: anchor.y }
+      : childSlot(anchor, nodeIndex - 1, cluster.nodes.length - 1)
+    : flatSlot(anchor, nodeIndex, cluster.nodes.length);
+  return condenseSlot(slot);
+}
 
-  return flatSlot(anchor, nodeIndex, cluster.nodes.length);
+// Pull every slot toward the center so the map reads denser (less empty space / panning).
+function condenseSlot(point: { x: number; y: number }): { x: number; y: number } {
+  const factor = 0.78;
+  return {
+    x: Math.round(CX + (point.x - CX) * factor),
+    y: Math.round(CY + (point.y - CY) * factor),
+  };
 }
 
 function anchorForCluster(key: string, clusterIndex: number): ClusterAnchor {

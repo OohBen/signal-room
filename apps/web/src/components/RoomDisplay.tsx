@@ -2,6 +2,7 @@ import { ArrowLeft, ArrowRight, Check, ChevronRight, Send, Sparkles, X } from "l
 import { useEffect, useMemo, useState } from "react";
 import type { SignalRoomSnapshot } from "../adapters/roomAdapter";
 import { GATEWAY_URL } from "../config";
+import { cleanInsight } from "../lib/cleanInsight";
 import type { AgentWorker, MapNode, PresencePin, WorkspaceLayout } from "../types/signalRoom";
 import { Avatar, Chip, ChipRow } from "./Primitives";
 import { LiveSignals } from "./LiveSignals";
@@ -201,6 +202,19 @@ function InspectorPanel({
   const questions = connectedItems.filter((item) => /question/i.test(item.title)).slice(0, 2);
   const tasks = connectedItems.filter((item) => /task/i.test(item.title)).slice(0, 2);
 
+  const agentStatus = {
+    label: node.hasAlert
+      ? "Urgent — review"
+      : node.agent?.state === "working"
+        ? "Researching…"
+        : node.agent?.kind === "none"
+          ? "No agent needed"
+          : node.agent?.insight
+            ? "Insight ready"
+            : node.focus.action,
+    tone: node.hasAlert ? "red" : "green",
+  };
+
   async function submitAgentPrompt() {
     const body = agentPrompt.trim();
     if (!body) return;
@@ -285,24 +299,54 @@ function InspectorPanel({
               </div>
               <div>
                 <span>Status</span>
-                <b className={node.hasAlert ? "red" : "green"}>{node.hasAlert ? "Finding ready" : node.focus.action}</b>
+                <b className={agentStatus.tone}>{agentStatus.label}</b>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="insp-section">
-          <div className="h">
-            <span className="t">Latest finding</span>
-          </div>
-          <div className="c queue-list">
-            {findings.length ? (
-              findings.map((item) => <QueueCard item={item} key={item.id} />)
-            ) : (
-              <p className="muted-copy">No research result has landed for this factor yet.</p>
-            )}
-          </div>
-        </section>
+        {node.agent && node.agent.kind !== "none" && node.agent.insight ? (
+          <section className="insp-section">
+            <div className="h">
+              <span className="t">Agent insight</span>
+              <span className="sp" />
+              <span className="agent-confidence">{node.agent.confidence}</span>
+            </div>
+            <div className="c">
+              <p className="agent-insight-text">{cleanInsight(node.agent.insight)}</p>
+              {node.agent.sources.length ? (
+                <div className="signal-sources">
+                  {node.agent.sources.map((source, index) =>
+                    source.href ? (
+                      <a className="signal-source" href={source.href} key={index} target="_blank" rel="noreferrer">
+                        {source.label}
+                      </a>
+                    ) : (
+                      <span className="signal-source" key={index}>
+                        {source.label}
+                      </span>
+                    )
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </section>
+        ) : node.agent?.kind === "none" ? (
+          <section className="insp-section">
+            <div className="c">
+              <p className="muted-copy">No agent on this card — web research won't help here; it needs the room's own input.</p>
+            </div>
+          </section>
+        ) : findings.length ? (
+          <section className="insp-section">
+            <div className="h">
+              <span className="t">Latest finding</span>
+            </div>
+            <div className="c queue-list">
+              {findings.map((item) => <QueueCard item={item} key={item.id} />)}
+            </div>
+          </section>
+        ) : null}
 
         <section className="insp-section">
           <div className="h">

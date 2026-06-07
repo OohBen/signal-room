@@ -1,5 +1,6 @@
 import { ArrowUpRight, ChevronRight, Network, Radio, Sparkles, X } from "lucide-react";
 import { useState } from "react";
+import { cleanInsight } from "../lib/cleanInsight";
 import type { RoomSignal } from "../types/signalRoom";
 
 export interface RootAnswer {
@@ -44,7 +45,7 @@ export function LiveSignals({
   const fleetDisabled = fleetThinking || !canRunFleet;
   const takeawayLines = (takeaways ?? "")
     .split(/\n+/)
-    .map((line) => line.replace(/^[•\-*]\s*/, "").trim())
+    .map((line) => cleanInsight(line.replace(/^[•\-*]\s*/, "")))
     .filter(Boolean);
 
   return (
@@ -96,7 +97,7 @@ export function LiveSignals({
             </div>
             <h3 className="wa-question">{rootAnswer.question}</h3>
             <p className="wa-answer">
-              {rootAnswer.answer || "Agents are researching the factors and synthesizing an answer…"}
+              {cleanInsight(rootAnswer.answer) || "Agents are researching the factors and synthesizing an answer…"}
             </p>
           </article>
         ) : null}
@@ -173,7 +174,7 @@ function SignalCard({ signal, onOpenNode }: { signal: RoomSignal; onOpenNode: (n
 }
 
 function formatSignalBody(raw: string): { preview: string; full: string; canExpand: boolean } {
-  const full = raw.replace(/\s+/g, " ").trim();
+  const full = cleanInsight(raw);
   const verdictMatch = full.match(/\bVerdict:\s*([^.!?]+[.!?]?)/i);
   const lead = verdictMatch?.[0]?.trim();
   const body = lead ? full.replace(lead, "").trim() : full;

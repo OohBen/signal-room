@@ -6,6 +6,7 @@ import { callReducer, jsonString, optionU64, parseSqlTable, querySql } from "../
 
 const DEFAULT_DATABASE = "signal-room";
 const DEFAULT_OPENROUTER_MODEL = "inception/mercury-2";
+const DEFAULT_REFINE_MODEL = "openai/gpt-4o-mini";
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const CONTEXT_MAX_LENGTH = 8000;
 const LEAF_QUERY_CONTEXT_MAX = 1500;
@@ -75,7 +76,7 @@ export async function runRoomFleet(options: RoomFleetOptions): Promise<RoomFleet
   const synth = createSynthClient();
 
   await phaseInitialStates(database, roomId, list);
-  await phaseLeafFleet(database, roomId, list, context, options.runner);
+  await phaseLeafFleet(database, roomId, list, context, options.runner, synth);
   await phaseSynthesis(database, roomId, nodes, rootId, context, synth);
   const summary = await phaseSummary(database, roomId, list, rootId, context, synth);
 
@@ -112,9 +113,11 @@ async function phaseLeafFleet(
   roomId: bigint,
   list: FleetNode[],
   context: string,
-  runner: ResearchTaskRunner
+  runner: ResearchTaskRunner,
+  synth: SynthClient
 ): Promise<void> {
   const leaves = list.filter((node) => node.kind === "leaf");
+  const refineModelId = refineModel();
   await runWithConcurrency(leaves, LEAF_CONCURRENCY, async (node) => {
     await setNodeAgent(database, roomId, node, "leaf", "working");
     try {
@@ -129,7 +132,9 @@ async function phaseLeafFleet(
         connectedNode: { id: node.id.toString(), title: node.title },
         urgencyHint: "medium",
       });
-      node.insight = capText(output.summary, INSIGHT_MAX_LENGTH);
+      // Refine the raw Exa answer into a concise, citation-free insight (fast model).
+      const refined = await refineInsight(synth.client, refineModelId, node.title, output.summary, context);
+      node.insight = capText(refined, INSIGHT_MAX_LENGTH);
       node.links = output.sourceLinks;
       node.confidence = output.sourceLinks.length >= 3 ? "high" : "medium";
       // Urgent / contradictory findings flag the node red so the room glances at it.
@@ -169,13 +174,13 @@ async function phaseSynthesis(
       .map((childId) => nodes.get(childId.toString()))
       .filter((child): child is FleetNode => child !== undefined && child.kind !== "none");
 
-    const childLines = children.map((child) => `Child factor: ${child.title} -> ${child.insight}`);
+    const childLines = children.map((child) => `${child.title}: ${cleanInsight(child.insight)}`);
     const highChildren = children.filter((child) => child.confidence === "high").length;
 
     try {
-      node.insight = await synthesize(synth, node, childLines, context);
+      node.insight = cleanInsight(await synthesize(synth, node, childLines, context));
     } catch {
-      node.insight = buildDeterministicSynthesis(node, children);
+      node.insight = cleanInsight(buildDeterministicSynthesis(node, children));
     }
 
     node.confidence = children.length > 0 && highChildren * 2 >= children.length ? "high" : "medium";
@@ -256,13 +261,18 @@ function formatBullets(content: string): string {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => `• ${line.replace(/^[•\-*\d.)\s]+/, "").trim()}`)
-    .filter((line) => line.length > 2);
+    .map((line) => cleanInsight(line.replace(/^[•\-*\d.)\s]+/, "")))
+    .filter((line) => line.length > 2)
+    .map((line) => `• ${line}`);
   return lines.join("\n");
 }
 
 function buildDeterministicSummary(insightLines: string[]): string {
-  const top = insightLines.slice(0, 5).map((line) => `• ${line}`);
+  const top = insightLines
+    .slice(0, 5)
+    .map((line) => cleanInsight(line))
+    .filter((line) => line.length > 2)
+    .map((line) => `• ${line}`);
   return top.length > 0 ? top.join("\n") : "• No research insights were available to summarize.";
 }
 
@@ -292,12 +302,15 @@ async function synthesize(
 function buildSynthSystemPrompt(isRoot: boolean): string {
   const entityFidelity =
     "Use people's, places', and organizations' names exactly as they appear in the meeting context, with full names whenever the transcript provides them; never abbreviate, translate, or guess spellings.";
+  const outputRules =
+    "Return only the insight prose: plain text, no markdown, no citation markers. Do not restate the factor title; do not prefix with labels.";
   if (isRoot) {
     return [
       "You are the root agent of a live meeting research fleet.",
       "Synthesize the child factor insights and the meeting context into a direct, decision-useful answer to the core room question.",
       "Be 2-4 sentences. State your assessment plainly, explicitly note your confidence, and name the single biggest open uncertainty.",
       "Do not invent facts that are not supported by the child insights or context.",
+      outputRules,
       entityFidelity,
     ].join(" ");
   }
@@ -305,6 +318,7 @@ function buildSynthSystemPrompt(isRoot: boolean): string {
     "You are a branch agent in a live meeting research fleet.",
     "Synthesize this factor from its child factor insights and the meeting context into 2-4 sentences of useful insight.",
     "Be specific and evidence-grounded. Do not invent facts beyond the child insights or context.",
+    outputRules,
     entityFidelity,
   ].join(" ");
 }
@@ -321,13 +335,14 @@ function buildSynthUserPrompt(node: FleetNode, childLines: string[], context: st
 }
 
 function buildDeterministicSynthesis(node: FleetNode, children: FleetNode[]): string {
-  const top = children
+  const body = children
     .slice(0, 3)
-    .map((child) => `${child.title}: ${child.insight}`)
+    .map((child) => cleanInsight(child.insight))
+    .filter(Boolean)
     .join(" ");
-  const prefix = `${node.title}.`;
-  const body = top || node.summary || "No child insights were available to synthesize.";
-  return capText(`${prefix} ${body}`.trim(), INSIGHT_MAX_LENGTH);
+  const prose =
+    body || cleanInsight(node.summary) || "No child insights were available to synthesize.";
+  return capText(prose, INSIGHT_MAX_LENGTH);
 }
 
 export function createSynthClient(): SynthClient {
@@ -347,6 +362,53 @@ export function createSynthClient(): SynthClient {
   });
 
   return { client, model };
+}
+
+function refineModel(): string {
+  return getSecret("SIGNAL_ROOM_REFINE_MODEL") ?? DEFAULT_REFINE_MODEL;
+}
+
+// Rewrite a raw web-research answer into a crisp, plain-text, citation-free insight.
+// Falls back to a cleaned version of the raw text on any error so it never blocks.
+async function refineInsight(
+  client: OpenAI,
+  model: string,
+  factorTitle: string,
+  raw: string,
+  context: string
+): Promise<string> {
+  try {
+    const completion = await client.chat.completions.create({
+      model,
+      temperature: 0.2,
+      max_tokens: 180,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Rewrite this raw web-research result into 1–3 crisp, plain-text sentences a meeting could act on. Lead with the verdict if there is one. No citation markers, no markdown, no preamble. Keep entity names exactly as given.",
+        },
+        {
+          role: "user",
+          content: [
+            `Factor: ${factorTitle}`,
+            context ? `Meeting context: ${context}` : "",
+            `Raw research result:\n${raw}`,
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+        },
+      ],
+    });
+
+    const content = completion.choices[0]?.message?.content;
+    if (typeof content !== "string" || !content.trim()) {
+      throw new Error("OpenRouter refine returned no content");
+    }
+    return cleanInsight(content);
+  } catch {
+    return cleanInsight(raw);
+  }
 }
 
 async function setNodeAgent(
@@ -539,6 +601,45 @@ async function runWithConcurrency<T>(
     }
   });
   await Promise.all(runners);
+}
+
+// Citation groups like "[1]", "[12]", "[1][2][3]", "[1, 2]", "[1-3]".
+const CITATION_GROUP_PATTERN = /\s*\[\s*\d+(?:\s*[,–-]\s*\d+)*\s*\]/g;
+// CJK bracketed citations like "【1】" and bare "(1)" citation groups.
+const CJK_CITATION_PATTERN = /\s*【\s*\d+(?:\s*[,–-]\s*\d+)*\s*】/g;
+const PAREN_CITATION_PATTERN = /\s*\(\s*\d+(?:\s*[,–-]\s*\d+)*\s*\)/g;
+
+export function cleanInsight(text: string): string {
+  if (typeof text !== "string") return "";
+  let out = text;
+
+  // Drop a trailing "Sources:" list (and anything after it).
+  out = out.replace(/\n?\s*sources?\s*:[\s\S]*$/i, "");
+
+  // Remove citation markers, repeating until adjacent groups stop collapsing.
+  for (const pattern of [CITATION_GROUP_PATTERN, CJK_CITATION_PATTERN, PAREN_CITATION_PATTERN]) {
+    let previous: string;
+    do {
+      previous = out;
+      out = out.replace(pattern, "");
+    } while (out !== previous);
+  }
+
+  // Strip markdown markers while keeping the words.
+  out = out
+    .replace(/```[\s\S]*?```/g, " ") // fenced code blocks
+    .replace(/`([^`]*)`/g, "$1") // inline code
+    .replace(/^\s{0,3}#{1,6}\s*/gm, "") // leading ATX headers
+    .replace(/(\*\*|__)(.*?)\1/g, "$2") // bold
+    .replace(/(\*|_)(.*?)\1/g, "$2") // emphasis
+    .replace(/[*_]/g, ""); // stray emphasis markers
+
+  // Collapse whitespace and trim.
+  out = out.replace(/\s+/g, " ").trim();
+  // Tidy spaces left before punctuation by citation removal.
+  out = out.replace(/\s+([.,;:!?])/g, "$1");
+
+  return out;
 }
 
 function capText(value: string, maxLength: number): string {
