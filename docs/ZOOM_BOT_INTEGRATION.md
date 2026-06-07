@@ -57,6 +57,12 @@ ZOOM_BOT_PLATFORM=linux/arm64
 
 Use the matching Linux Zoom SDK architecture.
 
+For cloud hosts, set the host-side SDK directory:
+
+```bash
+ZOOM_SDK_DIR=/data/signal-room/zoom-sdk
+```
+
 ## SpacetimeDB auth
 
 Cloud containers authenticate with:
@@ -87,7 +93,7 @@ h/
 The compose file mounts that directory into the container at runtime:
 
 ```yaml
-./lib/zoomsdk:/tmp/meeting-sdk-linux-sample/lib/zoomsdk:ro
+${ZOOM_SDK_DIR:-./lib/zoomsdk}:/tmp/meeting-sdk-linux-sample/lib/zoomsdk:ro
 ```
 
 For Coolify or another Git-based builder, GitHub source alone is not enough. Add the SDK as a server-side volume/file mount, or deploy on a VPS where the SDK directory exists before `docker compose up`.

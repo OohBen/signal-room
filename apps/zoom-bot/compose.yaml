@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     volumes:
       # Proprietary Zoom SDK files are not committed or baked into the image.
-      - ./lib/zoomsdk:/tmp/meeting-sdk-linux-sample/lib/zoomsdk:ro
+      - ${ZOOM_SDK_DIR:-./lib/zoomsdk}:/tmp/meeting-sdk-linux-sample/lib/zoomsdk:ro
     extra_hosts:
       # Only used when BRIDGE_GATEWAY_URL points at a local gateway from Docker.
       - "host.docker.internal:host-gateway"

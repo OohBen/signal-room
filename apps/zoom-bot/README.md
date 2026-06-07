@@ -42,6 +42,7 @@ Optional:
 | `BRIDGE_PCM_PATH` | `../out/mixed.pcm` |
 | `BRIDGE_POLL_MS` | `100` |
 | `ZOOM_BOT_PLATFORM` | `linux/amd64`; use `linux/arm64` only with the matching Linux-arm64 SDK |
+| `ZOOM_SDK_DIR` | local default `./lib/zoomsdk`; cloud should use a server-side directory such as `/data/signal-room/zoom-sdk` |
 
 ## Non-env requirement: Zoom SDK files
 
@@ -79,7 +80,7 @@ This package is cloud-forward:
 - The image copies source code at build time; it does not require a source bind mount.
 - SpacetimeDB auth is token-based through `SPACETIME_TOKEN`.
 - The default gateway target is the deployed gateway.
-- The Zoom SDK is mounted at runtime from `./lib/zoomsdk` because it cannot be committed.
+- The Zoom SDK is mounted at runtime from `ZOOM_SDK_DIR` because it cannot be committed.
 - `restart: unless-stopped` is enabled for the single running meeting bot.
 
 For a VPS deploy:
