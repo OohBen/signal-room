@@ -20,22 +20,24 @@ export async function startZoomBot(request: StartZoomBotRequest): Promise<StartZ
 
   await coolifyFetch(baseUrl, token, `/api/v1/applications/${appUuid}/envs/bulk`, {
     method: "PATCH",
-    body: JSON.stringify([
-      {
-        key: "ZOOM_JOIN_URL",
-        value: request.joinUrl,
-        is_buildtime: false,
-        is_literal: true,
-        is_preview: false,
-      },
-      {
-        key: "BRIDGE_ROOM_CODE",
-        value: request.roomCode,
-        is_buildtime: false,
-        is_literal: true,
-        is_preview: false,
-      },
-    ]),
+    body: JSON.stringify({
+      data: [
+        {
+          key: "ZOOM_JOIN_URL",
+          value: request.joinUrl,
+          is_buildtime: false,
+          is_literal: true,
+          is_preview: false,
+        },
+        {
+          key: "BRIDGE_ROOM_CODE",
+          value: request.roomCode,
+          is_buildtime: false,
+          is_literal: true,
+          is_preview: false,
+        },
+      ],
+    }),
   });
 
   const deployPath = `/api/v1/deploy?uuid=${encodeURIComponent(appUuid)}&force=false`;
