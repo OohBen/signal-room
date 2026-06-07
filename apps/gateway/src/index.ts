@@ -6,8 +6,6 @@ import { createExaResearchClient } from "./clients/exa.js";
 import { getGatewayRuntimeEnv, loadAiEnv } from "./config/env.js";
 import { buildHealthPayload, startHealthServer } from "./http/health.js";
 import { createOpenAiRealtimeRouter } from "./realtime/router.js";
-import { mintGeminiToken } from "./realtime/geminiToken.js";
-import { runCerebrasOperator } from "./realtime/cerebrasOperator.js";
 import { handleRealtimeRoomTool } from "./realtime/realtimeRoomTools.js";
 import { mintRealtimeToken } from "./realtime/realtimeToken.js";
 import { createTranscriptRouter } from "./realtime/transcriptRouter.js";
@@ -100,15 +98,7 @@ async function main(): Promise<void> {
           runner,
         });
       },
-      operate: async (request) =>
-        runCerebrasOperator({
-          database: request.database ?? options.database,
-          roomCode: request.roomCode,
-          transcript: request.transcript,
-          recentContext: request.recentContext,
-        }),
       realtimeToken: async () => mintRealtimeToken(),
-      geminiToken: async () => mintGeminiToken(),
       realtimeTool: async (request) =>
         handleRealtimeRoomTool(
           { database: request.database ?? options.database, roomCode: request.roomCode },

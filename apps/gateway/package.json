@@ -18,7 +18,6 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "@google/genai": "^2.8.0",
     "exa-js": "^2.13.0",
     "openai": "^6.42.0",
     "ws": "^8.21.0"

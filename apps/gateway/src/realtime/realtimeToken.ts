@@ -1,12 +1,10 @@
 import { getSecret } from "../config/env.js";
+import { ACTION_REALTIME_ROOM_TOOLS, buildOperatorInstructions } from "./operatorConfig.js";
 
-// OpenAI realtime session used for streaming transcription. gpt-realtime-whisper's
-// own segmentation was poor, so we use a conversational realtime session (hosted by
-// gpt-realtime-2) purely as the transcription carrier, with gpt-4o-mini-transcribe as
-// the transcription model + server VAD for clean turn boundaries. The map operator runs
-// separately on Cerebras via /operate, so gpt-realtime-2 never generates responses here.
-// Override models via SIGNAL_ROOM_REALTIME_MODEL / SIGNAL_ROOM_TRANSCRIPTION_MODEL.
 const DEFAULT_REALTIME_MODEL = "gpt-realtime-2";
+// gpt-4o-mini-transcribe is cheap enough (~$0.003/min) and accurate. For the lower-latency
+// streaming path, set SIGNAL_ROOM_TRANSCRIPTION_MODEL=gpt-realtime-whisper (OpenAI's natively-
+// streaming realtime transcriber) and optionally SIGNAL_ROOM_TRANSCRIBE_DELAY (minimal|low|medium|high|xhigh).
 const DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe-2025-12-15";
 
 export interface RealtimeTokenResult {
@@ -14,6 +12,8 @@ export interface RealtimeTokenResult {
   model: string;
   transcriptionModel: string;
   expiresAt?: number;
+  tools: unknown[];
+  operatorInstructions: string;
 }
 
 export async function mintRealtimeToken(): Promise<RealtimeTokenResult> {
@@ -25,6 +25,8 @@ export async function mintRealtimeToken(): Promise<RealtimeTokenResult> {
   const model = getSecret("SIGNAL_ROOM_REALTIME_MODEL") ?? DEFAULT_REALTIME_MODEL;
   const transcriptionModel = getSecret("SIGNAL_ROOM_TRANSCRIPTION_MODEL") ?? DEFAULT_TRANSCRIPTION_MODEL;
 
+  // gpt-realtime-whisper exposes a `delay` knob; only send it when configured so
+  // other transcription models aren't handed an unsupported field.
   const transcribeDelay = getSecret("SIGNAL_ROOM_TRANSCRIBE_DELAY");
   const transcription: Record<string, unknown> = { model: transcriptionModel, language: "en" };
   if (transcribeDelay) {
@@ -89,5 +91,12 @@ export async function mintRealtimeToken(): Promise<RealtimeTokenResult> {
 
   const expiresAt = typeof data?.expires_at === "number" ? data.expires_at : undefined;
 
-  return { value, model, transcriptionModel, expiresAt };
+  return {
+    value,
+    model,
+    transcriptionModel,
+    expiresAt,
+    tools: ACTION_REALTIME_ROOM_TOOLS,
+    operatorInstructions: buildOperatorInstructions(),
+  };
 }

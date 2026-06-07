@@ -30,9 +30,7 @@ export interface HealthServerOptions {
   workRoom?: (request: WorkRoomRequest) => Promise<unknown>;
   fleet?: (request: FleetRequest) => Promise<unknown>;
   ask?: (request: AskRequest) => Promise<unknown>;
-  operate?: (request: OperateRequest) => Promise<unknown>;
   realtimeToken?: () => Promise<unknown>;
-  geminiToken?: () => Promise<unknown>;
   realtimeTool?: (request: RealtimeToolRequest) => Promise<unknown>;
 }
 
@@ -60,13 +58,6 @@ export interface AskRequest {
   roomCode: string;
   question: string;
   database?: string;
-}
-
-export interface OperateRequest {
-  roomCode: string;
-  database?: string;
-  transcript: string;
-  recentContext?: string;
 }
 
 export interface RealtimeToolRequest {
@@ -251,29 +242,6 @@ async function handleRequest(
     return;
   }
 
-  if (request.method === "POST" && path === "/operate") {
-    if (!options.operate) {
-      writeJson(response, 503, {
-        ok: false,
-        error: "operate_unavailable",
-      });
-      return;
-    }
-
-    try {
-      const body = await readJsonBody(request);
-      const result = await options.operate(parseOperateRequest(body));
-      writeJson(response, 200, { ok: true, result });
-    } catch (error: unknown) {
-      writeJson(response, 400, {
-        ok: false,
-        error: "bad_request",
-        message: error instanceof Error ? error.message : "Invalid operate request",
-      });
-    }
-    return;
-  }
-
   if (request.method === "POST" && path === "/realtime-token") {
     if (!options.realtimeToken) {
       writeJson(response, 503, {
@@ -291,28 +259,6 @@ async function handleRequest(
         ok: false,
         error: "bad_request",
         message: error instanceof Error ? error.message : "Invalid realtime-token request",
-      });
-    }
-    return;
-  }
-
-  if (request.method === "POST" && path === "/gemini-token") {
-    if (!options.geminiToken) {
-      writeJson(response, 503, {
-        ok: false,
-        error: "gemini_token_unavailable",
-      });
-      return;
-    }
-
-    try {
-      const result = await options.geminiToken();
-      writeJson(response, 200, { ok: true, result });
-    } catch (error: unknown) {
-      writeJson(response, 400, {
-        ok: false,
-        error: "bad_request",
-        message: error instanceof Error ? error.message : "Invalid gemini-token request",
       });
     }
     return;
@@ -441,25 +387,6 @@ function parseAskRequest(body: unknown): AskRequest {
     roomCode,
     question,
     database,
-  };
-}
-
-function parseOperateRequest(body: unknown): OperateRequest {
-  if (!body || typeof body !== "object") {
-    throw new Error("Body must be a JSON object");
-  }
-
-  const record = body as Record<string, unknown>;
-  const roomCode = parseString(record.roomCode, "roomCode");
-  const transcript = parseString(record.transcript, "transcript");
-  const database = parseOptionalString(record.database, "database");
-  const recentContext = parseOptionalString(record.recentContext, "recentContext");
-
-  return {
-    roomCode,
-    database,
-    transcript,
-    recentContext,
   };
 }
 
