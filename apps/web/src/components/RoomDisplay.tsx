@@ -1,10 +1,10 @@
-import { ArrowLeft, ArrowRight, Check, ChevronRight, Send, Sparkles, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ChevronRight, ExternalLink, FileText, Network, Send, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { SignalRoomSnapshot } from "../adapters/roomAdapter";
-import { GATEWAY_URL } from "../config";
+import { GATEWAY_URL, SPACETIME_DATABASE } from "../config";
 import { cleanInsight } from "../lib/cleanInsight";
 import { renderRich } from "../lib/renderRich";
-import type { AgentWorker, MapNode, PresencePin, WorkspaceLayout } from "../types/signalRoom";
+import type { AgentWorker, Chip as SignalChip, MapNode, PresencePin, WorkspaceLayout } from "../types/signalRoom";
 import { Avatar, Chip, ChipRow } from "./Primitives";
 import { LiveSignals } from "./LiveSignals";
 import { RoomMap } from "./RoomMap";
@@ -21,7 +21,217 @@ export function RoomDisplay({ room, layout, onLayoutChange, onToast }: RoomDispl
     return <BriefingLayout room={room} onJump={(nodeId) => jumpToNode(room, nodeId, onLayoutChange)} />;
   }
 
+  if (layout === "takeaways") {
+    return <TakeawaysLayout room={room} onJump={(nodeId) => jumpToNode(room, nodeId, onLayoutChange)} onToast={onToast} />;
+  }
+
+  if (layout === "sources") {
+    return <SourcesLayout room={room} onJump={(nodeId) => jumpToNode(room, nodeId, onLayoutChange)} />;
+  }
+
   return <CanvasLayout room={room} onToast={onToast} />;
+}
+
+function TakeawaysLayout({
+  room,
+  onJump,
+  onToast,
+}: {
+  room: SignalRoomSnapshot;
+  onJump: (nodeId: string) => void;
+  onToast: (message: string) => void;
+}) {
+  const { state } = room;
+  const [researchWorking, setResearchWorking] = useState(false);
+  const taskItems = useMemo(
+    () => state.queueItems.filter((item) => isResearchTaskItem(item)),
+    [state.queueItems]
+  );
+  const takeawayLines = useMemo(
+    () => buildTakeawayLines(state.takeaways, state.signals, state.mapNodes),
+    [state.mapNodes, state.signals, state.takeaways]
+  );
+  const openQuestions = useMemo(
+    () => state.queueItems.filter((item) => /question/i.test(item.title)).slice(0, 5),
+    [state.queueItems]
+  );
+
+  async function workResearchTasks() {
+    if (researchWorking) return;
+    if (taskItems.length === 0) {
+      onToast("No research tasks are queued");
+      return;
+    }
+    setResearchWorking(true);
+    onToast("AI is working the research tasks");
+    try {
+      const response = await fetch(`${GATEWAY_URL}/work-room`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roomCode: state.roomCode,
+          database: SPACETIME_DATABASE,
+          maxTasks: Math.min(3, taskItems.length),
+        }),
+      });
+      if (!response.ok) throw new Error(`work-room ${response.status}`);
+      onToast("AI research task run finished");
+    } catch {
+      onToast("Could not reach the research worker");
+    } finally {
+      setResearchWorking(false);
+    }
+  }
+
+  return (
+    <section className="work briefing" aria-label="Takeaways">
+      <div className="digest">
+        <div className="digest-hero">
+          <div className="digest-title-row">
+            <div>
+              <div className="section-label">Takeaways · {state.roomCode}</div>
+              <h1>Takeaway items</h1>
+            </div>
+            <button
+              className="run-fleet digest-action-btn"
+              type="button"
+              onClick={() => void workResearchTasks()}
+              disabled={researchWorking || taskItems.length === 0}
+              title={taskItems.length ? undefined : "No research tasks are queued"}
+            >
+              <Network size={13} strokeWidth={2.2} />
+              {researchWorking ? "AI working…" : "Have AI work research"}
+            </button>
+          </div>
+          <p className="lead">
+            Decision-ready points from the room. Research tasks stay here until the AI swarm works them into findings.
+          </p>
+          <div className="digest-stats">
+            <DigestStat color="var(--green)" label="Takeaways" value={String(takeawayLines.length)} />
+            <DigestStat color="var(--amber)" label="Research tasks" value={String(taskItems.length)} />
+            <DigestStat color="var(--accent)" label="Agent findings" value={String(state.signals.length)} />
+            <DigestStat label="Open questions" value={String(openQuestions.length)} />
+          </div>
+        </div>
+
+        <div className="digest-grid">
+          <div className="digest-col">
+            <div className="section-label">Room takeaways</div>
+            {takeawayLines.length ? (
+              takeawayLines.map((line, index) => (
+                <article className="takeaway-item" key={`${line}-${index}`}>
+                  <Sparkles size={15} strokeWidth={2} />
+                  <p>{renderRich(cleanInsight(line))}</p>
+                </article>
+              ))
+            ) : (
+              <article className="q-card">
+                <p>Start the mic or run the agent fleet; takeaways will appear here as the room produces findings.</p>
+              </article>
+            )}
+
+            {openQuestions.length ? (
+              <>
+                <div className="section-label digest-subhead">Open room questions</div>
+                {openQuestions.map((item) => <QueueCard item={item} key={item.id} />)}
+              </>
+            ) : null}
+          </div>
+
+          <div className="digest-col">
+            <div className="section-label">Research tasks for AI</div>
+            {taskItems.length ? (
+              taskItems.map((item) => <QueueCard item={item} key={item.id} />)
+            ) : (
+              <article className="q-card">
+                <p>No research tasks are queued. When the realtime operator or a human creates one, it lands here for the AI swarm to work.</p>
+              </article>
+            )}
+
+            {state.mapNodes.length ? (
+              <>
+                <div className="section-label digest-subhead">Map context</div>
+                {state.mapNodes.slice(0, 5).map((node) => (
+                  <button className="q-card digest-action map-context-card" key={node.id} type="button" onClick={() => onJump(node.id)}>
+                    <div className="top">
+                      <span className="t">{node.title}</span>
+                      <span className="sp" />
+                      <Chip chip={{ label: node.focus.type, tone: node.focus.typeTone }} />
+                    </div>
+                    <p>{node.summary}</p>
+                  </button>
+                ))}
+              </>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+interface EvidenceSource {
+  id: string;
+  label: string;
+  href?: string;
+  origin: string;
+  connected: string;
+  connectedNodeId?: string;
+}
+
+function SourcesLayout({
+  room,
+  onJump,
+}: {
+  room: SignalRoomSnapshot;
+  onJump: (nodeId: string) => void;
+}) {
+  const { state } = room;
+  const aiSources = useMemo(() => collectAiSources(state), [state.mapNodes, state.signals]);
+
+  return (
+    <section className="work briefing" aria-label="Sources">
+      <div className="digest">
+        <div className="digest-hero">
+          <div className="section-label">Sources · {state.roomCode}</div>
+          <h1>Room sources</h1>
+          <p className="lead">
+            AI research links and human-added notes in one place. Sources stay attached to the map instead of disappearing into side chat.
+          </p>
+          <div className="digest-stats">
+            <DigestStat color="var(--accent)" label="AI sources" value={String(aiSources.length)} />
+            <DigestStat color="var(--green)" label="People added" value={String(state.sharedNotes.length)} />
+            <DigestStat label="Findings" value={String(state.signals.length)} />
+            <DigestStat label="Map nodes" value={String(state.mapNodes.length)} />
+          </div>
+        </div>
+
+        <div className="digest-grid source-grid">
+          <div className="digest-col">
+            <div className="section-label">AI sources</div>
+            {aiSources.length ? (
+              aiSources.map((source) => <AiSourceCard key={source.id} source={source} onJump={onJump} />)
+            ) : (
+              <article className="q-card">
+                <p>No AI source links yet. "Hey agent" answers and fleet research findings will add cited sources here.</p>
+              </article>
+            )}
+          </div>
+
+          <div className="digest-col">
+            <div className="section-label">People added</div>
+            {state.sharedNotes.length ? (
+              state.sharedNotes.map((note) => <HumanSourceCard key={note.id} note={note} />)
+            ) : (
+              <article className="q-card">
+                <p>No human notes have been added to the shared map yet.</p>
+              </article>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function CanvasLayout({ room, onToast }: { room: SignalRoomSnapshot; onToast: (message: string) => void }) {
@@ -443,6 +653,118 @@ function QueueCard({ item }: { item: SignalRoomSnapshot["state"]["queueItems"][n
       {item.chips.length ? <ChipRow chips={item.chips.slice(0, 3)} /> : null}
     </article>
   );
+}
+
+function AiSourceCard({ source, onJump }: { source: EvidenceSource; onJump: (nodeId: string) => void }) {
+  return (
+    <article className="evidence-card ai-source-card">
+      <div className="evidence-top">
+        <Network size={15} strokeWidth={2.1} />
+        <span>AI source</span>
+      </div>
+      {source.href ? (
+        <a className="evidence-title" href={source.href} target="_blank" rel="noreferrer">
+          {source.label}
+          <ExternalLink size={13} strokeWidth={2.1} />
+        </a>
+      ) : (
+        <strong className="evidence-title">{source.label}</strong>
+      )}
+      <p>{source.origin}</p>
+      <div className="evidence-bottom">
+        <span>{source.connected}</span>
+        {source.connectedNodeId ? (
+          <button className="inline-action" type="button" onClick={() => onJump(source.connectedNodeId!)}>
+            Open on map
+          </button>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function HumanSourceCard({ note }: { note: SignalRoomSnapshot["state"]["sharedNotes"][number] }) {
+  return (
+    <article className="evidence-card human-source-card">
+      <div className="evidence-top">
+        <FileText size={15} strokeWidth={2.1} />
+        <span>{note.author}</span>
+      </div>
+      <strong className="evidence-title">{note.connected}</strong>
+      <p>{note.body}</p>
+    </article>
+  );
+}
+
+function isResearchTaskItem(item: SignalRoomSnapshot["state"]["queueItems"][number]): boolean {
+  const text = `${item.title} ${item.metaChip.label} ${item.body}`.toLowerCase();
+  return /\b(?:agent task|quick_research|research|lookup|look up|source|evidence)\b/.test(text);
+}
+
+function buildTakeawayLines(
+  takeaways: string | undefined,
+  signals: SignalRoomSnapshot["state"]["signals"],
+  nodes: MapNode[]
+): string[] {
+  const explicit = splitTakeawayLines(takeaways);
+  if (explicit.length) return explicit.slice(0, 8);
+
+  const signalLines = signals
+    .slice(0, 5)
+    .map((signal) => `${signal.title}: ${signal.body}`)
+    .map((line) => cleanInsight(line))
+    .filter(Boolean);
+  if (signalLines.length) return signalLines;
+
+  const root = nodes.find((node) => node.isRoot) ?? nodes[0];
+  return root?.summary ? [root.summary] : [];
+}
+
+function splitTakeawayLines(takeaways: string | undefined): string[] {
+  return (takeaways ?? "")
+    .split(/\n+/)
+    .map((line) => cleanInsight(line.replace(/^[•\-*]\s*/, "")))
+    .filter(Boolean);
+}
+
+function collectAiSources(state: SignalRoomSnapshot["state"]): EvidenceSource[] {
+  const seen = new Set<string>();
+  const sources: EvidenceSource[] = [];
+
+  const pushSource = (
+    chip: SignalChip,
+    origin: string,
+    connected: string,
+    connectedNodeId?: string
+  ) => {
+    const label = chip.label.trim();
+    if (!label) return;
+    const key = chip.href ? `href:${chip.href}` : `label:${label.toLowerCase()}:${origin.toLowerCase()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    sources.push({
+      id: key,
+      label,
+      href: chip.href,
+      origin,
+      connected,
+      connectedNodeId,
+    });
+  };
+
+  for (const signal of state.signals) {
+    for (const source of signal.sources) {
+      pushSource(source, signal.title, signal.connectedNodeTitle, signal.connectedNodeId);
+    }
+  }
+
+  for (const node of state.mapNodes) {
+    for (const source of node.agent?.sources ?? []) {
+      pushSource(source, node.title, node.title, node.id);
+    }
+  }
+
+  return sources;
 }
 
 function formatQueueBody(rawBody: string): {

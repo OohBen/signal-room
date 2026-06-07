@@ -19,7 +19,7 @@ interface AppShellProps {
   children: ReactNode;
 }
 
-const layoutOptions: Array<{ id: WorkspaceLayout; label: string; icon: LucideIcon }> = [
+const layoutOptions: Array<{ id: Extract<WorkspaceLayout, "canvas" | "briefing">; label: string; icon: LucideIcon }> = [
   { id: "canvas", label: "Canvas", icon: LayoutPanelLeft },
   { id: "briefing", label: "Briefing", icon: BookOpen },
 ];
@@ -110,11 +110,11 @@ export function AppShell({
             <BookOpen size={18} strokeWidth={2.1} />
             <span>Brief</span>
           </button>
-          <button type="button" onClick={onPrivateOpen} title="Tasks">
+          <button className={layout === "takeaways" ? "active" : ""} type="button" onClick={() => onLayoutChange("takeaways")} title="Takeaways">
             <CheckSquare size={18} strokeWidth={2.1} />
-            <span>Tasks</span>
+            <span>Items</span>
           </button>
-          <button type="button" onClick={onPrivateOpen} title="Sources">
+          <button className={layout === "sources" ? "active" : ""} type="button" onClick={() => onLayoutChange("sources")} title="Sources">
             <Database size={18} strokeWidth={2.1} />
             <span>Sources</span>
           </button>

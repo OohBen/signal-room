@@ -12,7 +12,8 @@ import type { WorkspaceLayout } from "./types/signalRoom";
 type Theme = "dark" | "light";
 
 function readLayout(): WorkspaceLayout {
-  return window.localStorage.getItem("sr.layout") === "briefing" ? "briefing" : "canvas";
+  const stored = window.localStorage.getItem("sr.layout");
+  return stored === "briefing" || stored === "takeaways" || stored === "sources" ? stored : "canvas";
 }
 
 function readTheme(): Theme {

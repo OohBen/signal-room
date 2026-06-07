@@ -453,8 +453,13 @@ main {
 }
 
 .side-rail button span {
+  max-width: 48px;
+  overflow: hidden;
   font-size: 10px;
   font-weight: 800;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rail-spacer {
@@ -1973,6 +1978,18 @@ textarea:focus {
   line-height: 1.55;
 }
 
+.digest-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.digest-action-btn {
+  margin-top: 4px;
+  white-space: nowrap;
+}
+
 .digest-stats {
   margin-top: 28px;
   display: grid;
@@ -2086,6 +2103,99 @@ textarea:focus {
 
 .digest .feed-item {
   padding: 14px 16px;
+}
+
+.takeaway-item,
+.evidence-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-sm);
+}
+
+.takeaway-item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.takeaway-item svg {
+  margin-top: 2px;
+  color: var(--green);
+}
+
+.takeaway-item p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.map-context-card {
+  text-align: left;
+}
+
+.source-grid {
+  grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+}
+
+.evidence-card {
+  padding: 14px 16px;
+}
+
+.evidence-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.ai-source-card .evidence-top svg {
+  color: var(--accent);
+}
+
+.human-source-card .evidence-top svg {
+  color: var(--green);
+}
+
+.evidence-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 9px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-decoration: none;
+}
+
+a.evidence-title:hover {
+  color: var(--accent);
+}
+
+.evidence-card p {
+  margin: 8px 0 0;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.evidence-bottom {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 700;
 }
 
 .toast {

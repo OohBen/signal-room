@@ -1,6 +1,6 @@
 export type ScreenId = "room" | "host" | "laptop" | "transcript" | "thread";
 
-export type WorkspaceLayout = "canvas" | "briefing";
+export type WorkspaceLayout = "canvas" | "briefing" | "takeaways" | "sources";
 
 export type ChipTone = "default" | "blue" | "green" | "red" | "amber" | "violet";
 
