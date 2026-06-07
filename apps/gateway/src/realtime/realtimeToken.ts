@@ -1,4 +1,5 @@
 import { getSecret } from "../config/env.js";
+import { ACTION_REALTIME_ROOM_TOOLS, buildOperatorInstructions } from "./operatorConfig.js";
 
 const DEFAULT_REALTIME_MODEL = "gpt-realtime-2";
 const DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe-2025-12-15";
@@ -8,6 +9,8 @@ export interface RealtimeTokenResult {
   model: string;
   transcriptionModel: string;
   expiresAt?: number;
+  tools: unknown[];
+  operatorInstructions: string;
 }
 
 export async function mintRealtimeToken(): Promise<RealtimeTokenResult> {
@@ -77,5 +80,12 @@ export async function mintRealtimeToken(): Promise<RealtimeTokenResult> {
 
   const expiresAt = typeof data?.expires_at === "number" ? data.expires_at : undefined;
 
-  return { value, model, transcriptionModel, expiresAt };
+  return {
+    value,
+    model,
+    transcriptionModel,
+    expiresAt,
+    tools: ACTION_REALTIME_ROOM_TOOLS,
+    operatorInstructions: buildOperatorInstructions(),
+  };
 }

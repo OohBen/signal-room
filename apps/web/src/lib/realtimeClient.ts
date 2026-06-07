@@ -1,17 +1,33 @@
 import { GATEWAY_URL } from "../config";
 
-// Browser-direct OpenAI Realtime transcription over WebRTC.
+// Browser-direct OpenAI Realtime over WebRTC.
 // Audio never touches our gateway: the gateway only mints a short-lived
-// ephemeral token, then the browser opens a peer connection straight to
-// OpenAI. Transcripts arrive on the data channel; the caller decides what to
-// do with them (write to SpacetimeDB, route to the map, etc.).
+// ephemeral token (and hands back the operator tool schemas + instructions),
+// then the browser opens a peer connection straight to OpenAI.
+//
+// Two things flow over the data channel:
+//   1. background transcription (gpt-4o-mini-transcribe) → interim/final text
+//   2. the per-turn "operator": the caller sends a response.create with the
+//      room snapshot + tools; gpt-realtime-2 emits function_call events which
+//      the caller executes (relays to the gateway).
 
 const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
+
+export type RealtimeToolChoice = "required" | "auto" | { type: "function"; name: string };
+
+export interface RealtimeOperatorRequest {
+  input: string;
+  toolChoice?: RealtimeToolChoice;
+}
 
 export interface RealtimeTranscriptionHandlers {
   onStatus?: (status: string) => void;
   onInterim?: (text: string) => void;
   onFinal?: (text: string) => void;
+  // A function_call emitted by gpt-realtime-2. The caller executes it.
+  onToolCall?: (name: string, rawArguments: string) => void;
+  // An operator response.create finished (any tool-calls were already delivered).
+  onOperatorDone?: () => void;
   // fatal=true means do not auto-reconnect (bad key, no mic permission, …).
   onError?: (message: string, fatal: boolean) => void;
   onClosed?: () => void;
@@ -21,12 +37,18 @@ export interface RealtimeTranscriptionSession {
   stop: () => void;
   model: string;
   transcriptionModel: string;
+  tools: unknown[];
+  operatorInstructions: string;
+  // Trigger an out-of-band operator turn. Returns false if the channel is not open.
+  requestOperator: (request: RealtimeOperatorRequest) => boolean;
 }
 
 interface RealtimeTokenResult {
   value: string;
   model: string;
   transcriptionModel: string;
+  tools?: unknown[];
+  operatorInstructions?: string;
   expiresAt?: number;
 }
 
@@ -34,6 +56,9 @@ interface RealtimeServerEvent {
   type?: string;
   delta?: string;
   transcript?: string;
+  name?: string;
+  call_id?: string;
+  arguments?: string;
   error?: { message?: string };
 }
 
@@ -82,6 +107,9 @@ export async function startRealtimeTranscription(
     throw error;
   }
 
+  const tools = Array.isArray(token.tools) ? token.tools : [];
+  const operatorInstructions = typeof token.operatorInstructions === "string" ? token.operatorInstructions : "";
+
   const pc = new RTCPeerConnection();
   let stopped = false;
   let utterance = "";
@@ -106,8 +134,8 @@ export async function startRealtimeTranscription(
     pc.addTrack(track, micStream);
   }
 
-  // The model only returns text, so there is no remote audio to play — but
-  // wire ontrack defensively so a stray track never throws.
+  // Text-only output, so there is no remote audio to play — wire ontrack
+  // defensively so a stray track never throws.
   pc.ontrack = () => undefined;
 
   const dc = pc.createDataChannel("oai-events");
@@ -143,6 +171,16 @@ export async function startRealtimeTranscription(
         if (text) handlers.onFinal?.(text);
         return;
       }
+      case "response.function_call_arguments.done": {
+        const name = typeof event.name === "string" ? event.name : "";
+        const rawArguments = typeof event.arguments === "string" ? event.arguments : "{}";
+        if (name) handlers.onToolCall?.(name, rawArguments);
+        return;
+      }
+      case "response.done": {
+        handlers.onOperatorDone?.();
+        return;
+      }
       case "error": {
         const message = event.error?.message || "Realtime error";
         handlers.onError?.(message, isFatalRealtimeError(message));
@@ -151,6 +189,32 @@ export async function startRealtimeTranscription(
       default:
         return;
     }
+  }
+
+  function requestOperator(request: RealtimeOperatorRequest): boolean {
+    if (stopped || dc.readyState !== "open" || tools.length === 0) return false;
+    dc.send(
+      JSON.stringify({
+        type: "response.create",
+        response: {
+          conversation: "none",
+          output_modalities: ["text"],
+          parallel_tool_calls: true,
+          tool_choice: request.toolChoice ?? "required",
+          max_output_tokens: 650,
+          tools,
+          instructions: operatorInstructions,
+          input: [
+            {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: request.input }],
+            },
+          ],
+        },
+      })
+    );
+    return true;
   }
 
   pc.onconnectionstatechange = () => {
@@ -197,6 +261,9 @@ export async function startRealtimeTranscription(
     stop: cleanup,
     model: token.model,
     transcriptionModel: token.transcriptionModel,
+    tools,
+    operatorInstructions,
+    requestOperator,
   };
 }
 

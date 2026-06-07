@@ -6,6 +6,7 @@ import { createExaResearchClient } from "./clients/exa.js";
 import { getGatewayRuntimeEnv, loadAiEnv } from "./config/env.js";
 import { buildHealthPayload, startHealthServer } from "./http/health.js";
 import { createOpenAiRealtimeRouter } from "./realtime/router.js";
+import { handleRealtimeRoomTool } from "./realtime/realtimeRoomTools.js";
 import { mintRealtimeToken } from "./realtime/realtimeToken.js";
 import { createTranscriptRouter } from "./realtime/transcriptRouter.js";
 import { replayTranscript } from "./spacetime/replayTranscript.js";
@@ -98,6 +99,12 @@ async function main(): Promise<void> {
         });
       },
       realtimeToken: async () => mintRealtimeToken(),
+      realtimeTool: async (request) =>
+        handleRealtimeRoomTool(
+          { database: request.database ?? options.database, roomCode: request.roomCode },
+          request.name,
+          request.arguments
+        ),
     });
     return;
   }

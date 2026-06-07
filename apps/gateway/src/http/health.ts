@@ -31,6 +31,7 @@ export interface HealthServerOptions {
   fleet?: (request: FleetRequest) => Promise<unknown>;
   ask?: (request: AskRequest) => Promise<unknown>;
   realtimeToken?: () => Promise<unknown>;
+  realtimeTool?: (request: RealtimeToolRequest) => Promise<unknown>;
 }
 
 export interface ReplayTranscriptRequest {
@@ -57,6 +58,13 @@ export interface AskRequest {
   roomCode: string;
   question: string;
   database?: string;
+}
+
+export interface RealtimeToolRequest {
+  roomCode: string;
+  database?: string;
+  name: string;
+  arguments: string;
 }
 
 export function buildHealthPayload(runtimeEnv: GatewayRuntimeEnv): HealthPayload {
@@ -256,6 +264,29 @@ async function handleRequest(
     return;
   }
 
+  if (request.method === "POST" && path === "/realtime-tool") {
+    if (!options.realtimeTool) {
+      writeJson(response, 503, {
+        ok: false,
+        error: "realtime_tool_unavailable",
+      });
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(request);
+      const result = await options.realtimeTool(parseRealtimeToolRequest(body));
+      writeJson(response, 200, { ok: true, result });
+    } catch (error: unknown) {
+      writeJson(response, 400, {
+        ok: false,
+        error: "bad_request",
+        message: error instanceof Error ? error.message : "Invalid realtime-tool request",
+      });
+    }
+    return;
+  }
+
   writeJson(response, 404, {
     ok: false,
     error: "not_found",
@@ -356,6 +387,25 @@ function parseAskRequest(body: unknown): AskRequest {
     roomCode,
     question,
     database,
+  };
+}
+
+function parseRealtimeToolRequest(body: unknown): RealtimeToolRequest {
+  if (!body || typeof body !== "object") {
+    throw new Error("Body must be a JSON object");
+  }
+
+  const record = body as Record<string, unknown>;
+  const roomCode = parseString(record.roomCode, "roomCode");
+  const database = parseOptionalString(record.database, "database");
+  const name = parseString(record.name, "name");
+  const args = parseString(record.arguments, "arguments");
+
+  return {
+    roomCode,
+    database,
+    name,
+    arguments: args,
   };
 }
 

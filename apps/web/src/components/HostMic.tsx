@@ -37,7 +37,16 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   const reconnectAttemptsRef = useRef(0);
   const captureShouldRunRef = useRef(false);
   const stopRequestedRef = useRef(false);
+  // Operator concurrency: only one out-of-band response.create in flight; keep
+  // the most recent turn queued so we never overlap responses or drop the latest.
+  const operatorBusyRef = useRef(false);
+  const pendingOperatorTextRef = useRef<string | null>(null);
+  const operatorTimerRef = useRef<number | undefined>(undefined);
   const lastAskRef = useRef<{ question: string; at: number }>({ question: "", at: 0 });
+  // Connect-time handlers close over `state`; keep a live ref so the operator
+  // always reads the CURRENT map snapshot + transcript, not a stale closure.
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const sharedRoomReady = adapterStatus.mode === "spacetime" && Boolean(adapterStatus.roomId);
 
   // Direct "Hey agent, <question>" → fast /ask lane: answered straight into Live signals,
@@ -128,6 +137,10 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
         onFinal: (text) => {
           void handleFinalTranscript(text);
         },
+        onToolCall: (name, rawArguments) => {
+          void executeRealtimeTool(name, rawArguments);
+        },
+        onOperatorDone: () => finishOperator(),
         onError: (message, fatal) => handleRealtimeError(message, fatal),
         onClosed: () => handleRealtimeClosed(),
       });
@@ -158,10 +171,123 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     // Persist to the shared transcript log first so everyone sees the turn.
     await actions.addTranscriptChunk(clean).catch(() => undefined);
 
-    // Direct "Hey agent, …" → fast lane only (no map card). Everything else
-    // builds the map through the live router.
+    // Direct "Hey agent, …" → fast lane only (no map card).
     if (maybeAskAgent(clean)) return;
-    queueRouteText(clean);
+    // Otherwise let gpt-realtime-2 update the map directly from this turn.
+    triggerOperator(clean);
+  }
+
+  // Drive the realtime operator: send the live room snapshot + this turn back to
+  // gpt-realtime-2 over the data channel; it answers with map tool-calls.
+  function triggerOperator(latest: string) {
+    if (!liveRoutingRef.current) return;
+    const session = realtimeSessionRef.current;
+    if (!session || session.tools.length === 0) return;
+
+    const snapshot = stateRef.current;
+    const recent = [...snapshot.transcript]
+      .reverse()
+      .map((utterance) => utterance.text.trim())
+      .filter(Boolean)
+      .filter((t) => t !== latest)
+      .slice(-4)
+      .join("\n\n");
+
+    if (!hasMapworthySignal([recent, latest].filter(Boolean).join("\n\n"))) return;
+
+    // One operator response at a time; keep only the most recent turn queued.
+    if (operatorBusyRef.current) {
+      pendingOperatorTextRef.current = latest;
+      return;
+    }
+
+    const nodes = snapshot.mapNodes;
+    const root = nodes.find((node) => node.isRoot);
+    const lines: string[] = [
+      `Room code: ${snapshot.roomCode}`,
+      `Participant name: ${snapshot.displayName}`,
+      "Current map:",
+      `center: ${root?.title ?? "(none)"}`,
+    ];
+    const branchNodes = nodes.filter((node) => !node.isRoot);
+    if (branchNodes.length === 0) {
+      lines.push("nodes: (none)");
+    } else {
+      lines.push("nodes:");
+      for (const node of branchNodes) {
+        lines.push(`- [${node.focus?.type ?? "node"}] ${node.title}: ${node.summary}`);
+      }
+    }
+    lines.push(
+      "",
+      "Recent prior context:",
+      recent.slice(-1400) || "(none)",
+      "",
+      "LATEST TRANSCRIPT TURN TO ROUTE:",
+      latest.slice(-900),
+      "",
+      "Decide whether the shared state needs a map signal, passive question, quick-agent task, or no action."
+    );
+
+    const toolChoice =
+      nodes.length === 0 ? { type: "function" as const, name: "add_map_signal" } : ("required" as const);
+    const sent = session.requestOperator({ input: lines.join("\n"), toolChoice });
+    if (!sent) return;
+    operatorBusyRef.current = true;
+    setVoiceStatus("Agent reading the room…");
+    // Safety: if response.done never arrives, release the gate so we don't wedge.
+    clearOperatorTimer();
+    operatorTimerRef.current = window.setTimeout(() => finishOperator(), 14000);
+  }
+
+  function finishOperator() {
+    clearOperatorTimer();
+    operatorBusyRef.current = false;
+    const pending = pendingOperatorTextRef.current;
+    pendingOperatorTextRef.current = null;
+    if (pending && captureShouldRunRef.current && !stopRequestedRef.current) {
+      triggerOperator(pending);
+    }
+  }
+
+  function clearOperatorTimer() {
+    if (operatorTimerRef.current !== undefined) {
+      window.clearTimeout(operatorTimerRef.current);
+      operatorTimerRef.current = undefined;
+    }
+  }
+
+  // Execute a function_call from gpt-realtime-2 by relaying it to the gateway,
+  // which runs the proven handleRealtimeRoomTool against SpacetimeDB.
+  async function executeRealtimeTool(name: string, rawArguments: string) {
+    const snapshot = stateRef.current;
+    try {
+      const response = await fetch(`${GATEWAY_URL}/realtime-tool`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roomCode: snapshot.roomCode,
+          database: SPACETIME_DATABASE,
+          name,
+          arguments: rawArguments,
+        }),
+      });
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        message?: string;
+        result?: { action?: string; skipped?: boolean; message?: string };
+      };
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.message || `Gateway returned ${response.status}`);
+      }
+      const result = payload.result;
+      if (result && !result.skipped && result.action && result.action !== "ignore_turn") {
+        setVoiceStatus(result.message ? `Map updated · ${result.message}` : `Map updated · ${result.action}`);
+        void runResearchWorker(true);
+      }
+    } catch (error: unknown) {
+      onToast(error instanceof Error ? error.message : "Realtime tool call failed");
+    }
   }
 
   function handleRealtimeError(message: string, fatal: boolean) {
@@ -213,6 +339,9 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   function stopRealtimeCapture() {
     captureShouldRunRef.current = false;
     clearReconnectTimer();
+    clearOperatorTimer();
+    operatorBusyRef.current = false;
+    pendingOperatorTextRef.current = null;
     teardownSession();
     setListening(false);
     setVoiceStarting(false);
