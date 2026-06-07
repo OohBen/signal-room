@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -uo pipefail
+set -euo pipefail
 
 # directory for CMake output
 BUILD=build
@@ -32,6 +32,20 @@ setup-pulseaudio() {
   echo -e "[General]\nsystem.audio.type=default" > ~/.config/zoomus.conf
 }
 
+setup-spacetime-auth() {
+  if [[ -z "${SPACETIME_TOKEN:-}" ]]; then
+    echo "fatal: SPACETIME_TOKEN is not set"
+    exit 1
+  fi
+
+  export SPACETIME_ROOT_DIR="${SPACETIME_ROOT_DIR:-/tmp/spacetime}"
+  mkdir -p "$SPACETIME_ROOT_DIR"
+  spacetime --root-dir "$SPACETIME_ROOT_DIR" login --token "$SPACETIME_TOKEN" >/dev/null || {
+    echo "fatal: spacetime login --token failed"
+    exit 1
+  }
+}
+
 build() {
   # Generate config.toml from env vars before anything else reads it.
   bin/gen-config.sh
@@ -60,11 +74,12 @@ build() {
 
 run() {
   export QT_LOGGING_RULES="*.debug=false;*.warning=false"
+  setup-spacetime-auth
 
-  # Make sure stale socket doesn't block the C++ side.
+  # Make sure stale socket state from the upstream sample cannot interfere.
   rm -f /tmp/meeting.sock
 
-  # Start the Node bridge first so it can wait on the socket.
+  # Start the Node bridge first so it can wait on out/mixed.pcm.
   ( cd client && node src/index.js ) &
   BRIDGE_PID=$!
 
@@ -72,7 +87,7 @@ run() {
   trap 'kill $BRIDGE_PID 2>/dev/null || true' EXIT
 
   # C++ bot — RawAudio (no --transcribe) writes mixed PCM to out/mixed.pcm.
-  # The Node bridge tails this file and forwards to the gateway. We avoid
+  # The Node bridge tails this file and streams it to OpenAI Realtime. We avoid
   # --transcribe because it triggers a post-authorize segfault in the SDK
   # that we can't debug inside the closed-source libmeetingsdk.so.
   mkdir -p out

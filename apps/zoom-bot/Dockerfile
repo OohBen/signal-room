@@ -55,9 +55,9 @@ RUN apt-get install -y  pulseaudio pulseaudio-utils
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs
 
-# Install the SpacetimeDB CLI — bridge shells out to it for create_room /
-# add_transcript_chunk. Auth lives in /root/.config/spacetime (mounted via
-# compose.yaml from the host's ~/.config/spacetime).
+# Install the SpacetimeDB CLI. The bridge shells out for create_room,
+# add_transcript_chunk, and realtime operator reducers. Auth is token-based at
+# container startup through SPACETIME_TOKEN.
 RUN curl -fsSL https://install.spacetimedb.com | bash -s -- --yes \
     && ln -sf /root/.local/bin/spacetime /usr/local/bin/spacetime || true
 
@@ -80,6 +80,11 @@ RUN git clone --depth 1 https://github.com/Microsoft/vcpkg.git \
 FROM deps AS build
 
 WORKDIR $cwd
+
+COPY client/package*.json ./client/
+RUN npm --prefix=client ci --omit=dev --no-audit --no-fund
+
+COPY . ./
+RUN chmod +x bin/*.sh
+
 ENTRYPOINT ["/tini", "--", "./bin/entry.sh"]
-
-

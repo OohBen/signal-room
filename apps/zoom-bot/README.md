@@ -1,97 +1,104 @@
 # signal-room/zoom-bot
 
-A headless Zoom Meeting SDK bot that joins a meeting, captures mixed audio, and forwards it to the Signal Room gateway's realtime audio socket. From the gateway's perspective the bot is indistinguishable from a browser microphone client.
+Headless Zoom Meeting SDK notetaker for Signal Room.
 
-This package is a fork of [`zoom/meetingsdk-headless-linux-sample`](https://github.com/zoom/meetingsdk-headless-linux-sample) (MIT) with one new component layered on top.
+The bot joins one Zoom meeting, captures mixed audio, streams that audio to OpenAI Realtime, and writes transcript/operator updates directly into SpacetimeDB. The gateway is only used at startup to fetch the same realtime operator tools and instructions that the browser uses from `/realtime-token`.
 
-## What we layered on top of the official sample
-
-| Component | Origin | Purpose |
-|---|---|---|
-| `src/` (C++) | upstream | Joins a Zoom meeting, exposes mixed PCM via `-t/--transcribe` to `/tmp/meeting.sock` |
-| `bin/entry.sh` | upstream + edits | Boots pulseaudio, builds, then launches bridge + bot in parallel |
-| `client/` | **new** | Node bridge: reads `/tmp/meeting.sock`, resamples 32k -> 24k PCM, forwards to gateway WS |
-| `Dockerfile`, `CMakeLists.txt`, `vcpkg.json` | upstream | Untouched |
-
-## Prerequisites
-
-1. **Docker** (with `linux/amd64` emulation enabled on Apple Silicon).
-2. **Zoom Meeting SDK credentials** — see [`docs/ZOOM_SETUP.md`](../../docs/ZOOM_SETUP.md).
-3. **Zoom Meeting SDK for Linux binary** — proprietary, not redistributable.
-   - Download from Zoom Marketplace -> your app -> Embed -> Meeting SDK -> Linux.
-   - Extract `libmeetingsdk.so` and headers into `lib/zoomsdk/` (intentionally empty in git).
-
-## Configuration
-
-All config lives in `.env` (gitignored). Copy the template:
-
-```bash
-cp .env.example .env
-# then edit .env
-```
-
-You need three things:
-
-| Var | Where to find it |
-|---|---|
-| `ZOOM_CLIENT_ID` | Marketplace app → App Credentials |
-| `ZOOM_CLIENT_SECRET` | Marketplace app → App Credentials → Show |
-| `ZOOM_JOIN_URL` | Zoom meeting invite link, format `https://us02web.zoom.us/j/<id>?pwd=<encoded-pwd>` |
-
-`config.toml` is **generated at container start** from these env vars by `bin/gen-config.sh`. Never commit it.
-
-The Node bridge picks up its own config from the same `.env`:
-
-| Env var | Default | Purpose |
-|---|---|---|
-| `BRIDGE_GATEWAY_URL` | `ws://host.docker.internal:8787/live-audio` | Gateway WS endpoint |
-| `BRIDGE_ROOM_CODE` | `ZOOM-DEFAULT` | SpacetimeDB room code for the transcript |
-| `BRIDGE_DISPLAY_NAME` | `Signal Room Notetaker` | Display name reported to the gateway |
-| `BRIDGE_SPACETIME_DB` | `signal-room` | SpacetimeDB database name |
-| `BRIDGE_SOCKET_PATH` | `/tmp/meeting.sock` | Unix socket the C++ bot writes to |
-
-## Audio pipeline
+## Pipeline
 
 ```
 Zoom meeting
-  |  (32kHz mono int16 PCM, mixed)
-  v
-C++ bot  --writes-->  /tmp/meeting.sock
-                            |
-                            v
-                  Node bridge (client/)
-                  - 32kHz -> 24kHz resample
-                  - 40ms framing
-                  - base64 encode
-                  - JSON {type: "audio_pcm", audioBase64: ...}
-                            |
-                            v
-              Gateway /live-audio WebSocket
-                            |
-                            v
-              OpenAI Realtime -> transcript -> SpacetimeDB -> web UI
+  -> C++ Meeting SDK bot writes out/mixed.pcm (32kHz mono int16)
+  -> Node bridge tails the PCM file and resamples to 24kHz
+  -> OpenAI Realtime transcribes and runs operator tool calls
+  -> spacetime call writes transcript chunks and realtime_* reducer updates
+  -> Signal Room web UI receives live table updates
 ```
+
+There is no `/live-audio` gateway WebSocket in this path.
+
+## Required runtime env
+
+Put these in `.env` for local compose or as cloud runtime env vars:
+
+| Env var | Value |
+|---|---|
+| `ZOOM_CLIENT_ID` | Zoom Marketplace General App Client ID with Meeting SDK enabled |
+| `ZOOM_CLIENT_SECRET` | Zoom Marketplace General App Client Secret |
+| `ZOOM_JOIN_URL` | Full Zoom join URL for the single meeting this bot should join |
+| `OPENAI_API_KEY` | OpenAI key used by the bot's direct Realtime WebSocket |
+| `SPACETIME_TOKEN` | Output of `spacetime login show --token` for maincloud |
+| `BRIDGE_GATEWAY_URL` | `https://sig-api.benautomates.com` in cloud; local override: `http://host.docker.internal:8787` |
+| `BRIDGE_ROOM_CODE` | Signal Room room code to write into, for example `ZOOM-LIVE` |
+| `BRIDGE_SPACETIME_DB` | `signal-room` |
+
+Optional:
+
+| Env var | Default |
+|---|---|
+| `BRIDGE_DISPLAY_NAME` | `Signal Room Notetaker` |
+| `BRIDGE_REALTIME_MODEL` | `gpt-realtime-2` |
+| `BRIDGE_TRANSCRIPTION_MODEL` | `gpt-4o-mini-transcribe-2025-12-15` |
+| `BRIDGE_PCM_PATH` | `../out/mixed.pcm` |
+| `BRIDGE_POLL_MS` | `100` |
+| `ZOOM_BOT_PLATFORM` | `linux/amd64`; use `linux/arm64` only with the matching Linux-arm64 SDK |
+
+## Non-env requirement: Zoom SDK files
+
+The Zoom Meeting SDK for Linux is proprietary and is not committed.
+
+Download the SDK from the Zoom Marketplace app, then place the Linux SDK files under:
+
+```
+apps/zoom-bot/lib/zoomsdk/
+```
+
+`libmeetingsdk.so` and the `h/` headers must sit directly inside that directory. Use the SDK architecture that matches `ZOOM_BOT_PLATFORM`.
 
 ## Run locally
 
 ```bash
+cd apps/zoom-bot
+cp .env.example .env
+# edit .env with the required values
 docker compose up --build
 ```
 
-The first build downloads vcpkg + system deps and takes a while. Subsequent builds are cached.
+If you want the bot to use a local gateway for operator config, run `pnpm dev:gateway` from the repo root and set:
 
-## Phase status
+```bash
+BRIDGE_GATEWAY_URL=http://host.docker.internal:8787
+```
 
-| Phase | State |
-|---|---|
-| 0. Marketplace app setup doc | done |
-| 1. Scaffold from official sample | done |
-| 2. JWT generation + env-based join | next |
-| 3. Audio sanity check (10s WAV dump) | next |
-| 4. WS bridge wired (this README) | done (untested end-to-end) |
-| 5. Gateway spawns/stops bot containers | not started |
-| 6. Per-participant audio (needs Zoom raw-data approval) | deferred |
+Otherwise leave `BRIDGE_GATEWAY_URL=https://sig-api.benautomates.com`.
+
+## Cloud deploy shape
+
+This package is cloud-forward:
+
+- The image copies source code at build time; it does not require a source bind mount.
+- SpacetimeDB auth is token-based through `SPACETIME_TOKEN`.
+- The default gateway target is the deployed gateway.
+- The Zoom SDK is mounted at runtime from `./lib/zoomsdk` because it cannot be committed.
+- `restart: unless-stopped` is enabled for the single running meeting bot.
+
+For a VPS deploy:
+
+```bash
+git clone git@github.com:OohBen/signal-room.git
+cd signal-room/apps/zoom-bot
+# copy SDK files into lib/zoomsdk/
+# create .env with the required runtime env above
+docker compose up -d --build
+docker compose logs -f zoomsdk
+```
+
+For Coolify or another Git-based builder, you still need to provide the Zoom SDK directory as a runtime volume or server-side file mount. GitHub source alone cannot contain the SDK.
+
+## Current scope
+
+This runs one bot for one meeting at a time. To run another meeting concurrently, run another container with a different `.env`, especially a different `ZOOM_JOIN_URL` and `BRIDGE_ROOM_CODE`.
 
 ## Upstream license
 
-This package retains the upstream MIT license — see `LICENSE.md`.
+This package retains the upstream MIT license. See `LICENSE.md`.

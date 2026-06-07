@@ -23,10 +23,11 @@ import { OpenAIRealtimeWS } from "openai/realtime/ws";
 
 const PCM_PATH = process.env.BRIDGE_PCM_PATH ?? "../out/mixed.pcm";
 const POLL_MS = Number(process.env.BRIDGE_POLL_MS ?? "100");
-const ROOM_CODE = process.env.BRIDGE_ROOM_CODE ?? "ZOOM-LIVE";
+const ROOM_CODE = requiredEnv("BRIDGE_ROOM_CODE");
 const DISPLAY_NAME = process.env.BRIDGE_DISPLAY_NAME ?? "Signal Room Notetaker";
-const DATABASE = process.env.BRIDGE_SPACETIME_DB ?? "signal-room-server-v3dax";
-const GATEWAY_URL = process.env.BRIDGE_GATEWAY_URL ?? "http://host.docker.internal:8787";
+const DATABASE = requiredEnv("BRIDGE_SPACETIME_DB");
+const GATEWAY_URL = requiredEnv("BRIDGE_GATEWAY_URL");
+const SPACETIME_ROOT_DIR = process.env.SPACETIME_ROOT_DIR?.trim() || "";
 const REALTIME_MODEL = process.env.BRIDGE_REALTIME_MODEL ?? "gpt-realtime-2";
 const TRANSCRIPTION_MODEL =
   process.env.BRIDGE_TRANSCRIPTION_MODEL ?? "gpt-4o-mini-transcribe-2025-12-15";
@@ -41,6 +42,20 @@ const OPERATOR_TIMEOUT_MS = 14000;
 
 function log(message) {
   process.stdout.write(`[bridge] ${message}\n`);
+}
+
+function requiredEnv(name) {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} is not set`);
+  return value;
+}
+
+function spacetimeArgs(args) {
+  return SPACETIME_ROOT_DIR ? ["--root-dir", SPACETIME_ROOT_DIR, ...args] : args;
+}
+
+function sqlString(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
 }
 
 function runCommand(command, args) {
@@ -77,23 +92,23 @@ function optionF64(value) {
 
 async function ensureRoom() {
   log(`ensuring room ${ROOM_CODE} on ${DATABASE}`);
-  const createResult = await runCommand("spacetime", [
+  const createResult = await runCommand("spacetime", spacetimeArgs([
     "call",
     DATABASE,
     "create_room",
     jsonString(ROOM_CODE),
     jsonString(`Signal Room ${ROOM_CODE}`),
     jsonString(DISPLAY_NAME),
-  ]);
+  ]));
   if (createResult.code !== 0) {
     throw new Error(`create_room failed: ${createResult.stderr || createResult.stdout}`);
   }
 
-  const sqlResult = await runCommand("spacetime", [
+  const sqlResult = await runCommand("spacetime", spacetimeArgs([
     "sql",
     DATABASE,
-    `SELECT room_id FROM room WHERE code = '${ROOM_CODE}'`,
-  ]);
+    `SELECT room_id FROM room WHERE code = ${sqlString(ROOM_CODE)}`,
+  ]));
   if (sqlResult.code !== 0) {
     throw new Error(`room lookup failed: ${sqlResult.stderr || sqlResult.stdout}`);
   }
@@ -110,7 +125,7 @@ async function ensureRoom() {
 async function addTranscriptChunk(roomId, text) {
   const now = Date.now();
   const startMs = Math.max(0, now - 5000);
-  const result = await runCommand("spacetime", [
+  const result = await runCommand("spacetime", spacetimeArgs([
     "call",
     DATABASE,
     "add_transcript_chunk",
@@ -120,7 +135,7 @@ async function addTranscriptChunk(roomId, text) {
     String(BigInt(startMs)),
     String(BigInt(now)),
     '{"none":{}}',
-  ]);
+  ]));
   if (result.code !== 0) {
     log(`add_transcript_chunk failed: ${result.stderr || result.stdout}`);
   }
@@ -208,7 +223,7 @@ async function runOperatorTool(roomId, name, rawArgs) {
   }
 
   log(`operator -> ${name}`);
-  const result = await runCommand("spacetime", ["call", DATABASE, ...cliArgs]);
+  const result = await runCommand("spacetime", spacetimeArgs(["call", DATABASE, ...cliArgs]));
   if (result.code !== 0) {
     log(`operator ${name} failed: ${result.stderr || result.stdout}`);
   }

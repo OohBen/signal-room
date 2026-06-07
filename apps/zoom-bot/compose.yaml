@@ -1,21 +1,26 @@
 services:
   zoomsdk: &zoomsdk
     build: ./
-    # Apple Silicon: linux/arm64 runs natively (no Rosetta). If you switch to
-    # an x86_64 host, change this to linux/amd64 and download the Linux-x86_64
-    # SDK instead.
-    platform: linux/arm64
+    # Cloud default is amd64. If running on Apple Silicon or an ARM VPS, set
+    # ZOOM_BOT_PLATFORM=linux/arm64 and mount the matching Linux-arm64 SDK.
+    platform: ${ZOOM_BOT_PLATFORM:-linux/amd64}
+    restart: unless-stopped
     volumes:
-      - .:/tmp/meeting-sdk-linux-sample
-      - ~/.config/spacetime:/root/.config/spacetime:ro
+      # Proprietary Zoom SDK files are not committed or baked into the image.
+      - ./lib/zoomsdk:/tmp/meeting-sdk-linux-sample/lib/zoomsdk:ro
     extra_hosts:
-      # Bot fetches the operator config from the gateway at startup.
+      # Only used when BRIDGE_GATEWAY_URL points at a local gateway from Docker.
       - "host.docker.internal:host-gateway"
-    env_file:
-      - .env
     environment:
-      OPENAI_API_KEY: "${OPENAI_API_KEY}"
-      BRIDGE_GATEWAY_URL: "${BRIDGE_GATEWAY_URL:-http://host.docker.internal:8787}"
+      ZOOM_CLIENT_ID: "${ZOOM_CLIENT_ID:-}"
+      ZOOM_CLIENT_SECRET: "${ZOOM_CLIENT_SECRET:-}"
+      ZOOM_JOIN_URL: "${ZOOM_JOIN_URL:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      SPACETIME_TOKEN: "${SPACETIME_TOKEN:-}"
+      SPACETIME_ROOT_DIR: "${SPACETIME_ROOT_DIR:-}"
+      BRIDGE_GATEWAY_URL: "${BRIDGE_GATEWAY_URL:-https://sig-api.benautomates.com}"
       BRIDGE_ROOM_CODE: "${BRIDGE_ROOM_CODE:-ZOOM-LIVE}"
       BRIDGE_DISPLAY_NAME: "${BRIDGE_DISPLAY_NAME:-Signal Room Notetaker}"
-      BRIDGE_SPACETIME_DB: "${BRIDGE_SPACETIME_DB:-signal-room-server-v3dax}"
+      BRIDGE_SPACETIME_DB: "${BRIDGE_SPACETIME_DB:-signal-room}"
+      BRIDGE_REALTIME_MODEL: "${BRIDGE_REALTIME_MODEL:-gpt-realtime-2}"
+      BRIDGE_TRANSCRIPTION_MODEL: "${BRIDGE_TRANSCRIPTION_MODEL:-gpt-4o-mini-transcribe-2025-12-15}"

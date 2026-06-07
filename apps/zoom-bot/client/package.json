@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Reads PCM from the C++ Zoom bot's Unix socket, resamples 32kHz->24kHz, forwards to the gateway /live-audio WS.",
+  "description": "Tails mixed Zoom PCM, streams it to OpenAI Realtime, and writes Signal Room reducers through SpacetimeDB.",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js"

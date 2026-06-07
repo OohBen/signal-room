@@ -1,0 +1,11 @@
+.env
+config.toml
+build/
+out/
+client/node_modules/
+.git/
+.DS_Store
+
+# Proprietary Zoom SDK binaries are mounted or copied on the deploy host.
+lib/zoomsdk/*
+!lib/zoomsdk/.gitkeep
