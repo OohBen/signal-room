@@ -46,9 +46,30 @@ setup-spacetime-auth() {
   }
 }
 
+stage-zoom-sdk() {
+  local source_dir="${ZOOM_SDK_MOUNT_DIR:-lib/zoomsdk}"
+  if [[ ! -f "$source_dir/libmeetingsdk.so" || ! -d "$source_dir/h" ]]; then
+    echo "fatal: Zoom SDK mount is missing libmeetingsdk.so or h/ at $source_dir"
+    exit 1
+  fi
+
+  export ZOOM_SDK_RUNTIME_DIR="${ZOOM_SDK_RUNTIME_DIR:-/tmp/zoom-sdk-runtime}"
+  rm -rf "$ZOOM_SDK_RUNTIME_DIR"
+  mkdir -p "$ZOOM_SDK_RUNTIME_DIR"
+  cp -a "$source_dir"/. "$ZOOM_SDK_RUNTIME_DIR"/
+
+  local lib="$ZOOM_SDK_RUNTIME_DIR/libmeetingsdk.so"
+  [[ -f "${lib}.1" ]] || cp "$lib" "${lib}.1"
+  export LD_LIBRARY_PATH="$ZOOM_SDK_RUNTIME_DIR:$ZOOM_SDK_RUNTIME_DIR/qt_libs:${LD_LIBRARY_PATH:-}"
+}
+
 build() {
   # Generate config.toml from env vars before anything else reads it.
   bin/gen-config.sh
+
+  # The cloud mount is read-only, so stage the proprietary SDK into a writable
+  # runtime directory before CMake links against it.
+  stage-zoom-sdk
 
   # Configure CMake if this is the first run.
   [[ ! -d "$BUILD" ]] && {
@@ -60,10 +81,6 @@ build() {
   [[ ! -d client/node_modules ]] && {
     npm --prefix=client install --no-audit --no-fund
   }
-
-  # Rename the shared library
-  LIB="lib/zoomsdk/libmeetingsdk.so"
-  [[ ! -f "${LIB}.1" ]] && cp "$LIB"{,.1}
 
   # Set up and start pulseaudio
   setup-pulseaudio &> /dev/null || exit;

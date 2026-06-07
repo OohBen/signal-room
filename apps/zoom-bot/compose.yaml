@@ -17,7 +17,7 @@ services:
       ZOOM_JOIN_URL: "${ZOOM_JOIN_URL:-}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       SPACETIME_TOKEN: "${SPACETIME_TOKEN:-}"
-      SPACETIME_ROOT_DIR: "${SPACETIME_ROOT_DIR:-}"
+      SPACETIME_ROOT_DIR: "${SPACETIME_ROOT_DIR:-/tmp/spacetime}"
       BRIDGE_GATEWAY_URL: "${BRIDGE_GATEWAY_URL:-https://sig-api.benautomates.com}"
       BRIDGE_ROOM_CODE: "${BRIDGE_ROOM_CODE:-ZOOM-LIVE}"
       BRIDGE_DISPLAY_NAME: "${BRIDGE_DISPLAY_NAME:-Signal Room Notetaker}"

@@ -10,7 +10,10 @@ set(CMAKE_SYSTEM_NAME Linux)
 # Inherit from host (linux/amd64 -> x86_64, linux/arm64 -> aarch64).
 # Upstream hardcoded x86_64; that breaks vcpkg triplet selection on arm64.
 
-set(ZOOM_SDK lib/zoomsdk)
+set(ZOOM_SDK "$ENV{ZOOM_SDK_RUNTIME_DIR}")
+if("${ZOOM_SDK}" STREQUAL "")
+  set(ZOOM_SDK lib/zoomsdk)
+endif()
 
 find_package(CLI11 REQUIRED)
 
@@ -60,8 +63,6 @@ add_executable(zoomsdk src/main.cpp
 
 target_include_directories(zoomsdk PRIVATE ${JWT_CPP_INCLUDE_DIRS} ${PICOJSON_INCLUDE_DIRS})
 target_link_libraries(zoomsdk PRIVATE meetingsdk OpenSSL::SSL OpenSSL::Crypto CLI11::CLI11 PkgConfig::deps ${OpenCV_LIBS} ${X11_LIBRARIES})
-
-
 
 
 
