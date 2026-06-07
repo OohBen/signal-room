@@ -186,7 +186,10 @@ export async function startGeminiLive(handlers: GeminiLiveHandlers): Promise<Gem
   session = await ai.live.connect({
     model: token.model,
     config: {
-      responseModalities: [Modality.TEXT],
+      // The available Gemini Live models are native-audio: they ONLY support AUDIO
+      // output (TEXT is rejected with close 1007). We discard the model's audio and
+      // only consume its inputAudioTranscription + function-calls.
+      responseModalities: [Modality.AUDIO],
       inputAudioTranscription: {},
       systemInstruction: token.operatorInstructions || undefined,
       ...(functionDeclarations.length > 0 ? { tools: [{ functionDeclarations }] } : {}),
