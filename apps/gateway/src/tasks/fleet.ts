@@ -5,8 +5,8 @@ import { getSecret } from "../config/env.js";
 import { callReducer, jsonString, optionU64, parseSqlTable, querySql } from "../spacetime/cli.js";
 
 const DEFAULT_DATABASE = "signal-room";
-const DEFAULT_OPENROUTER_MODEL = "inception/mercury-2";
-const DEFAULT_REFINE_MODEL = "openai/gpt-4o-mini";
+const DEFAULT_OPENROUTER_MODEL = "openai/gpt-5.4-mini";
+const DEFAULT_REFINE_MODEL = "openai/gpt-5.4-mini";
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const CONTEXT_MAX_LENGTH = 8000;
 const LEAF_QUERY_CONTEXT_MAX = 1500;

@@ -8,7 +8,7 @@ import {
   type TranscriptRouter,
 } from "../spacetime/replayTranscript.js";
 
-const DEFAULT_OPENROUTER_MODEL = "inception/mercury-2";
+const DEFAULT_OPENROUTER_MODEL = "openai/gpt-5.4-mini";
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 export interface TranscriptRouterOptions {
