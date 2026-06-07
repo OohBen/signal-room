@@ -1,0 +1,18 @@
+{
+  "name": "signal-room-zoom-bot-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tails mixed Zoom PCM, streams it to OpenAI Realtime, and writes Signal Room reducers through SpacetimeDB.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "openai": "^6.42.0",
+    "ws": "^8.21.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,10 +1,18 @@
-import { ArrowLeft, ArrowRight, Check, ChevronRight, ExternalLink, FileText, Network, Send, Sparkles, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ChevronRight, ExternalLink, FileText, Network, Send, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { SignalRoomSnapshot } from "../adapters/roomAdapter";
 import { GATEWAY_URL, SPACETIME_DATABASE } from "../config";
 import { cleanInsight } from "../lib/cleanInsight";
 import { renderRich } from "../lib/renderRich";
-import type { AgentWorker, Chip as SignalChip, MapNode, PresencePin, WorkspaceLayout } from "../types/signalRoom";
+import type {
+  AgentWorker,
+  Chip as SignalChip,
+  MapNode,
+  PresencePin,
+  QueueItem,
+  TranscriptUtterance,
+  WorkspaceLayout,
+} from "../types/signalRoom";
 import { Avatar, Chip, ChipRow } from "./Primitives";
 import { LiveSignals } from "./LiveSignals";
 import { RoomMap } from "./RoomMap";
@@ -450,6 +458,17 @@ function InspectorPanel({
     onToast("Map node updated");
   }
 
+  async function deleteNode() {
+    if (isEmpty || node.isRoot) return;
+    const deleted = await room.actions.deleteMapNode(node.id);
+    if (!deleted) {
+      onToast("Card did not delete");
+      return;
+    }
+    onBackToSignals();
+    onToast("Card deleted");
+  }
+
   return (
     <aside className="panel right">
       <div className="panel-head">
@@ -479,6 +498,12 @@ function InspectorPanel({
               <button className="inline-action" type="button" onClick={() => setIsEditingNode((open) => !open)}>
                 {isEditingNode ? "Cancel" : "Edit"}
               </button>
+              {!isEmpty && !node.isRoot ? (
+                <button className="inline-action danger" type="button" onClick={deleteNode} title="Delete bad card">
+                  <Trash2 size={13} strokeWidth={2.1} />
+                  Delete
+                </button>
+              ) : null}
             </div>
             {isEditingNode ? (
               <div className="node-edit-form">
@@ -810,8 +835,13 @@ function BriefingLayout({
   onJump: (nodeId: string) => void;
 }) {
   const { state } = room;
-  const alertNode = state.mapNodes.find((node) => node.hasAlert) ?? state.mapNodes[0];
-  const latestSignals = state.transcript.slice(0, 8);
+  const openQuestions = useMemo(() => briefingQuestions(state.queueItems), [state.queueItems]);
+  const primaryNode =
+    state.mapNodes.find((node) => node.id === state.defaultFocusNodeId) ??
+    state.mapNodes.find((node) => node.isRoot) ??
+    state.mapNodes[0];
+  const alertNode = chooseBriefingDecisionNode(state.mapNodes, primaryNode);
+  const latestSignals = useMemo(() => briefingTranscript(state.transcript), [state.transcript]);
 
   return (
     <section className="work briefing" aria-label="Room briefing">
@@ -820,14 +850,14 @@ function BriefingLayout({
           <div className="section-label">Room briefing · {state.roomCode} · catch up in 20 seconds</div>
           <h1>{state.question}</h1>
           <p className="lead">
-            {state.mapNodes[0]?.focus.text ??
+            {primaryNode?.focus.text ??
               "The room is waiting for its first live signal. Start the mic and the map will fill as people talk."}
           </p>
           <div className="digest-stats">
             <DigestStat color="var(--accent)" label="Working synthesis" value={state.synthesisState} />
             <DigestStat color="var(--green)" label="Shared nodes" value={String(state.mapNodes.length)} />
             <DigestStat label="Researching now" value={`${state.agents.filter((agent) => agent.status === "busy").length} agents`} />
-            <DigestStat label="Captured this session" value={`${Math.max(state.transcript.length, state.roomEvents.length)} signals`} />
+            <DigestStat label="Clean turns" value={`${latestSignals.length} shown`} />
           </div>
         </div>
 
@@ -851,8 +881,8 @@ function BriefingLayout({
             ) : null}
 
             <div className="section-label digest-subhead">Open questions · waiting on a human</div>
-            {state.queueItems.length ? (
-              state.queueItems.map((item) => (
+            {openQuestions.length ? (
+              openQuestions.map((item) => (
                 <button className="q-card digest-action" key={item.id} type="button" onClick={() => alertNode && onJump(alertNode.id)}>
                   <div className="top">
                     <span className="t">{item.title}</span>
@@ -864,7 +894,7 @@ function BriefingLayout({
               ))
             ) : (
               <article className="q-card">
-                <p>No passive questions are waiting. The Realtime operator will add them here when useful.</p>
+                <p>No clean human-decision questions are waiting. Agent findings stay in Live Signals.</p>
               </article>
             )}
           </div>
@@ -905,6 +935,80 @@ function BriefingLayout({
     </section>
   );
 }
+
+function chooseBriefingDecisionNode(nodes: SignalRoomSnapshot["state"]["mapNodes"], primaryNode?: SignalRoomSnapshot["state"]["mapNodes"][number]) {
+  return (
+    nodes.find((node) => node.hasAlert && !isTopicShiftNode(node)) ??
+    primaryNode ??
+    nodes.find((node) => !isTopicShiftNode(node)) ??
+    nodes[0]
+  );
+}
+
+function isTopicShiftNode(node: SignalRoomSnapshot["state"]["mapNodes"][number]): boolean {
+  const text = `${node.title} ${node.focus.type}`.toLowerCase();
+  return /\btopic shift\b|\bshift to\b/.test(text);
+}
+
+function briefingQuestions(items: QueueItem[]): QueueItem[] {
+  const seen = new Set<string>();
+  return items
+    .filter((item) => /question/i.test(item.title))
+    .filter((item) => !isLowSignalBriefingQuestion(item.body))
+    .filter((item) => {
+      const key = briefingQuestionKey(item.body);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 4);
+}
+
+function briefingTranscript(transcript: TranscriptUtterance[]): TranscriptUtterance[] {
+  return transcript.filter((utterance) => isUsefulBriefingTurn(utterance.text)).slice(0, 6);
+}
+
+function isUsefulBriefingTurn(text: string): boolean {
+  const clean = text.trim().replace(/\s+/g, " ");
+  const words = clean.split(/\s+/).filter(Boolean);
+  if (words.length < 5) return false;
+  if (/[.…]{2,}$/.test(clean)) return false;
+  if (/^(?:and|or|um|uh|yeah|okay)[.?!…]*$/i.test(clean)) return false;
+  return !/\b(?:and|or|um|uh|so|sort of|kind of|like)\s*[.?!…]*$/i.test(clean);
+}
+
+function isLowSignalBriefingQuestion(text: string): boolean {
+  const lower = text.toLowerCase();
+  return /transcription glitch|could someone restate|restate the goal|intended action/.test(lower);
+}
+
+function briefingQuestionKey(question: string): string {
+  const lower = question.toLowerCase();
+  if (/\breview\b/.test(lower) && /\bcriteria\b/.test(lower)) return "review-criteria";
+  if (/\bmicrowave\b/.test(lower) && /\bhackathon\b/.test(lower)) return "microwave-or-hackathon";
+  return lower
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 2 && !BRIEFING_QUESTION_STOP_WORDS.has(token))
+    .sort()
+    .join(" ");
+}
+
+const BRIEFING_QUESTION_STOP_WORDS = new Set([
+  "and",
+  "are",
+  "choice",
+  "choosing",
+  "decision",
+  "discussion",
+  "does",
+  "for",
+  "question",
+  "the",
+  "topic",
+  "what",
+  "will",
+]);
 
 function PresenceStack({ presence }: { presence: PresencePin[] }) {
   if (presence.length === 0) return null;

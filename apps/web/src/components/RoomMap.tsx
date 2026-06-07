@@ -67,10 +67,16 @@ interface NodeDragState {
 
 type DraftNodePositions = Record<string, { x: number; y: number }>;
 
-const STAGE_W = 3600;
-const STAGE_H = 2400;
+const STAGE_W = 18000;
+const STAGE_H = 12000;
 const CX = STAGE_W / 2;
 const CY = STAGE_H / 2;
+const LEGACY_STAGE_W = 3600;
+const LEGACY_STAGE_H = 2400;
+const LEGACY_CX = LEGACY_STAGE_W / 2;
+const LEGACY_CY = LEGACY_STAGE_H / 2;
+const LEGACY_OFFSET_X = CX - LEGACY_CX;
+const LEGACY_OFFSET_Y = CY - LEGACY_CY;
 const MIN_ZOOM = 0.38;
 const MAX_ZOOM = 2.4;
 const SNAP_GRID = 24;
@@ -104,6 +110,8 @@ export function RoomMap({
   const [draftNodePositions, setDraftNodePositions] = useState<DraftNodePositions>({});
   const mapLayout = layoutMapNodes(nodes, edges, draftNodePositions);
   const layout = mapLayout.nodes;
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
   const hasSelection = layout.some((positioned) => positioned.node.id === focusedNodeId);
   const positionById = new Map(layout.map((positioned) => [positioned.node.id, positioned]));
   const drawnEdges = edges
@@ -121,11 +129,17 @@ export function RoomMap({
 
     const rect = viewport.getBoundingClientRect();
     const availableWidth = Math.max(rect.width - insetLeft - insetRight, 220);
-    const nextZoom = Math.min(1, Math.max(MIN_ZOOM, availableWidth / 1380, (rect.height - 80) / 1000));
+    const availableHeight = Math.max(rect.height - 120, 220);
+    const layoutBoundsTarget = viewportTargetBounds(layoutRef.current);
+    const target = viewportRootTarget(layoutRef.current) ?? layoutBoundsTarget;
+    const targetWidth = Math.max(1, layoutBoundsTarget.right - layoutBoundsTarget.left);
+    const targetHeight = Math.max(1, layoutBoundsTarget.bottom - layoutBoundsTarget.top);
+    const fitZoom = Math.min(availableWidth / (targetWidth + 420), availableHeight / (targetHeight + 280));
+    const nextZoom = Math.min(1, Math.max(MIN_ZOOM, fitZoom));
     setZoom(nextZoom);
     requestAnimationFrame(() => {
-      viewport.scrollLeft = Math.max(0, CX * nextZoom - availableWidth / 2 - 20);
-      viewport.scrollTop = Math.max(0, CY * nextZoom - rect.height / 2 - 30);
+      viewport.scrollLeft = Math.max(0, target.centerX * nextZoom - (insetLeft + availableWidth / 2));
+      viewport.scrollTop = Math.max(0, target.centerY * nextZoom - (28 + availableHeight / 2));
     });
   }, [insetLeft, insetRight]);
 
@@ -526,11 +540,18 @@ function layoutMapNodes(nodes: MapNode[], edges: MapEdge[], draftNodePositions: 
       const draft = draftNodePositions[positioned.node.id];
       if (draft) return { ...positioned, x: draft.x, y: draft.y };
       if (hasExplicitPosition(positioned.node)) {
-        return { ...positioned, x: positioned.node.x, y: positioned.node.y };
+        return { ...positioned, ...stagePosition(positioned.node) };
       }
       return positioned;
     }),
   };
+}
+
+function stagePosition(node: MapNode & { x: number; y: number }): { x: number; y: number } {
+  if (node.x <= LEGACY_STAGE_W && node.y <= LEGACY_STAGE_H) {
+    return { x: node.x + LEGACY_OFFSET_X, y: node.y + LEGACY_OFFSET_Y };
+  }
+  return { x: node.x, y: node.y };
 }
 
 function createCleanLayoutPatches(nodes: MapNode[], edges: MapEdge[], currentLayout: PositionedNode[]): LayoutPositionPatch[] {
@@ -538,7 +559,7 @@ function createCleanLayoutPatches(nodes: MapNode[], edges: MapEdge[], currentLay
 
   const root = nodes.find((node) => node.isRoot) ?? nodes[0];
   const currentById = new Map(currentLayout.map((positioned) => [positioned.node.id, positioned]));
-  const proposedLayout = layoutAutomaticNodes(nodes, edges, root, currentById);
+  const proposedLayout = layoutAutomaticNodes(nodes, edges, root);
   const currentBounds = layoutBounds(currentLayout);
   const proposedBounds = layoutBounds(proposedLayout);
   if (!currentBounds || !proposedBounds) return [];
@@ -879,6 +900,24 @@ function layoutBounds(layout: PositionedNode[]):
     top,
     bottom,
   };
+}
+
+function viewportTargetBounds(layout: PositionedNode[]): NonNullable<ReturnType<typeof layoutBounds>> {
+  return (
+    layoutBounds(layout) ?? {
+      centerX: CX,
+      centerY: CY,
+      left: CX - 690,
+      right: CX + 690,
+      top: CY - 500,
+      bottom: CY + 500,
+    }
+  );
+}
+
+function viewportRootTarget(layout: PositionedNode[]): Pick<NonNullable<ReturnType<typeof layoutBounds>>, "centerX" | "centerY"> | undefined {
+  const root = layout.find((positioned) => positioned.node.isRoot) ?? layout[0];
+  return root ? { centerX: root.x, centerY: root.y } : undefined;
 }
 
 function separateOverlappingNodes(layout: PositionedNode[], lockedNodeId: string): PositionedNode[] {

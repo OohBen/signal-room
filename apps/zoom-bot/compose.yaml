@@ -1,0 +1,26 @@
+services:
+  zoomsdk: &zoomsdk
+    build: ./
+    # Cloud default is amd64. If running on Apple Silicon or an ARM VPS, set
+    # ZOOM_BOT_PLATFORM=linux/arm64 and mount the matching Linux-arm64 SDK.
+    platform: ${ZOOM_BOT_PLATFORM:-linux/amd64}
+    restart: unless-stopped
+    volumes:
+      # Proprietary Zoom SDK files are not committed or baked into the image.
+      - ${ZOOM_SDK_DIR:-./lib/zoomsdk}:/opt/signal-room/meeting-sdk-linux-sample/lib/zoomsdk:ro
+    extra_hosts:
+      # Only used when BRIDGE_GATEWAY_URL points at a local gateway from Docker.
+      - "host.docker.internal:host-gateway"
+    environment:
+      ZOOM_CLIENT_ID: "${ZOOM_CLIENT_ID:-}"
+      ZOOM_CLIENT_SECRET: "${ZOOM_CLIENT_SECRET:-}"
+      ZOOM_JOIN_URL: "${ZOOM_JOIN_URL:-}"
+      ZOOM_AUDIO_START_TIMEOUT_SEC: "${ZOOM_AUDIO_START_TIMEOUT_SEC:-240}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      SPACETIME_TOKEN: "${SPACETIME_TOKEN:-}"
+      BRIDGE_GATEWAY_URL: "${BRIDGE_GATEWAY_URL:-https://sig-api.benautomates.com}"
+      BRIDGE_ROOM_CODE: "${BRIDGE_ROOM_CODE:-ZOOM-LIVE}"
+      BRIDGE_DISPLAY_NAME: "${BRIDGE_DISPLAY_NAME:-Signal Room Notetaker}"
+      BRIDGE_SPACETIME_DB: "${BRIDGE_SPACETIME_DB:-signal-room}"
+      BRIDGE_REALTIME_MODEL: "${BRIDGE_REALTIME_MODEL:-gpt-realtime-2}"
+      BRIDGE_TRANSCRIPTION_MODEL: "${BRIDGE_TRANSCRIPTION_MODEL:-gpt-4o-mini-transcribe-2025-12-15}"

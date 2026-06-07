@@ -17,7 +17,9 @@ function readLayout(): WorkspaceLayout {
 }
 
 function readTheme(): Theme {
-  return "light";
+  const stored = window.localStorage.getItem("sr.theme");
+  if (stored === "dark" || stored === "light") return stored;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 // Gate the table-consuming app on a live connection. The SpacetimeDB React SDK's
@@ -58,9 +60,8 @@ function RoomApp() {
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", "light");
-    window.localStorage.setItem("sr.theme", "light");
-    if (theme !== "light") setTheme("light");
+    document.documentElement.setAttribute("data-theme", theme);
+    window.localStorage.setItem("sr.theme", theme);
   }, [theme]);
 
   useEffect(() => {
@@ -102,7 +103,12 @@ function RoomApp() {
       onLayoutChange={setLayout}
       onNewRoom={openNewRoom}
       onPrivateOpen={() => setPrivateOpen(true)}
-      onThemeToggle={() => setTheme("light")}
+      onRoomTitleChange={async (title) => {
+        const renamed = await room.actions.renameRoom(title);
+        showToast(renamed ? "Room renamed" : "Room rename did not sync");
+        return renamed;
+      }}
+      onThemeToggle={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
     >
       <RoomDisplay room={room} layout={layout} onLayoutChange={setLayout} onToast={showToast} />
       <HostMic room={room} isActive={false} onToast={showToast} />

@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { createExaResearchClient } from "./clients/exa.js";
 import { getGatewayRuntimeEnv, loadAiEnv } from "./config/env.js";
 import { buildHealthPayload, startHealthServer } from "./http/health.js";
+import { startZoomBot } from "./coolify/zoomBotControl.js";
 import { createOpenAiRealtimeRouter } from "./realtime/router.js";
 import { mintRealtimeToken } from "./realtime/realtimeToken.js";
 import { createTranscriptRouter } from "./realtime/transcriptRouter.js";
@@ -98,6 +99,7 @@ async function main(): Promise<void> {
         });
       },
       realtimeToken: async () => mintRealtimeToken(),
+      zoomJoin: async (request) => startZoomBot(request),
     });
     return;
   }

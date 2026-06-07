@@ -29,6 +29,7 @@ export interface HealthServerOptions {
   fleet?: (request: FleetRequest) => Promise<unknown>;
   ask?: (request: AskRequest) => Promise<unknown>;
   realtimeToken?: () => Promise<unknown>;
+  zoomJoin?: (request: ZoomJoinRequest) => Promise<unknown>;
 }
 
 export interface ReplayTranscriptRequest {
@@ -55,6 +56,11 @@ export interface AskRequest {
   roomCode: string;
   question: string;
   database?: string;
+}
+
+export interface ZoomJoinRequest {
+  roomCode: string;
+  joinUrl: string;
 }
 
 export function buildHealthPayload(runtimeEnv: GatewayRuntimeEnv): HealthPayload {
@@ -237,6 +243,29 @@ async function handleRequest(
     return;
   }
 
+  if (request.method === "POST" && path === "/zoom-bot/join") {
+    if (!options.zoomJoin) {
+      writeJson(response, 503, {
+        ok: false,
+        error: "zoom_bot_unavailable",
+      });
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(request);
+      const result = await options.zoomJoin(parseZoomJoinRequest(body));
+      writeJson(response, 200, { ok: true, result });
+    } catch (error: unknown) {
+      writeJson(response, 400, {
+        ok: false,
+        error: "bad_request",
+        message: error instanceof Error ? error.message : "Invalid zoom-bot request",
+      });
+    }
+    return;
+  }
+
   writeJson(response, 404, {
     ok: false,
     error: "not_found",
@@ -338,6 +367,58 @@ function parseAskRequest(body: unknown): AskRequest {
     question,
     database,
   };
+}
+
+function parseZoomJoinRequest(body: unknown): ZoomJoinRequest {
+  if (!body || typeof body !== "object") {
+    throw new Error("Body must be a JSON object");
+  }
+
+  const record = body as Record<string, unknown>;
+  const roomCode = parseString(record.roomCode, "roomCode");
+  const joinUrl = parseZoomJoinUrl(record.joinUrl);
+  return { roomCode, joinUrl };
+}
+
+function parseZoomJoinUrl(value: unknown): string {
+  const joinUrl = parseString(value, "joinUrl");
+  let parsed: URL;
+  try {
+    parsed = new URL(joinUrl);
+  } catch {
+    throw new Error("joinUrl must be a valid Zoom URL");
+  }
+
+  if (parsed.protocol !== "https:" || !/\.?zoom\.us$/i.test(parsed.hostname)) {
+    throw new Error("joinUrl must be a zoom.us HTTPS URL");
+  }
+
+  const meetingId = extractZoomMeetingId(parsed.pathname);
+  if (!meetingId) {
+    throw new Error("joinUrl must be a Zoom meeting join URL");
+  }
+
+  const password = parsed.searchParams.get("pwd");
+  if (!password) {
+    throw new Error("joinUrl must include the Zoom meeting password");
+  }
+
+  const normalized = new URL(`https://${parsed.hostname}/j/${meetingId}`);
+  normalized.searchParams.set("pwd", password);
+  return normalized.toString();
+}
+
+function extractZoomMeetingId(pathname: string): string | undefined {
+  const parts = pathname.split("/").filter(Boolean);
+  let candidate: string | undefined;
+  if ((parts[0] === "j" || parts[0] === "s") && parts[1]) {
+    candidate = parts[1];
+  } else if (parts[0] === "wc" && (parts[1] === "join" || parts[1] === "j") && parts[2]) {
+    candidate = parts[2];
+  }
+
+  const digits = candidate?.replace(/\D/g, "") ?? "";
+  return digits.length >= 9 ? digits : undefined;
 }
 
 function parseString(value: unknown, name: string): string {

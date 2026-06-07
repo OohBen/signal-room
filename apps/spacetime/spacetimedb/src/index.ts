@@ -294,9 +294,31 @@ const spacetimedb = schema({
 
 export default spacetimedb;
 
+const ROOM_MIC_STARTING_STATUS = 'mic_starting';
+const ROOM_MIC_LIVE_STATUS = 'mic_live';
+const ROOM_MIC_TTL_MICROS = 30_000_000n;
+
 function cleanText(value: string, fallback: string): string {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : fallback;
+}
+
+function timestampMicros(value: any): bigint {
+  if (typeof value?.microsSinceUnixEpoch === 'bigint') {
+    return value.microsSinceUnixEpoch;
+  }
+  if (typeof value?.__timestamp_micros_since_unix_epoch__ === 'bigint') {
+    return value.__timestamp_micros_since_unix_epoch__;
+  }
+  return 0n;
+}
+
+function isRoomMicStatus(status: string): boolean {
+  return status === ROOM_MIC_STARTING_STATUS || status === ROOM_MIC_LIVE_STATUS;
+}
+
+function cleanRoomMicStatus(status: string): string {
+  return status === ROOM_MIC_LIVE_STATUS ? ROOM_MIC_LIVE_STATUS : ROOM_MIC_STARTING_STATUS;
 }
 
 function shortTitle(value: string, fallback: string): string {
@@ -380,6 +402,56 @@ function upsertParticipantForSender(
     joinedAt: ctx.timestamp,
     lastSeenAt: ctx.timestamp,
   });
+}
+
+function updateParticipantStatusForSender(
+  ctx: any,
+  roomId: bigint,
+  displayName: string,
+  status: string,
+  cursorNodeId: bigint | undefined
+): void {
+  const existing = first(
+    ctx.db.participant.by_room_identity.filter([roomId, ctx.sender])
+  );
+  const cleanDisplayName = cleanText(displayName, 'Participant');
+
+  if (existing !== undefined) {
+    ctx.db.participant.participantId.update({
+      ...existing,
+      displayName: cleanDisplayName,
+      status: cleanText(status, existing.status),
+      cursorNodeId,
+      lastSeenAt: ctx.timestamp,
+    });
+    return;
+  }
+
+  ctx.db.participant.insert({
+    participantId: 0n,
+    roomId,
+    identity: ctx.sender,
+    displayName: cleanDisplayName,
+    role: 'participant',
+    status: cleanText(status, 'online'),
+    cursorNodeId,
+    joinedAt: ctx.timestamp,
+    lastSeenAt: ctx.timestamp,
+  });
+}
+
+function activeRoomMicHolder(ctx: any, roomId: bigint): any | undefined {
+  const nowMicros = timestampMicros(ctx.timestamp);
+  for (const row of ctx.db.participant.roomId.filter(roomId)) {
+    if (!isRoomMicStatus(row.status)) continue;
+    if (row.identity.equals(ctx.sender)) continue;
+
+    const lastSeenMicros = timestampMicros(row.lastSeenAt);
+    if (lastSeenMicros === 0n || nowMicros - lastSeenMicros <= ROOM_MIC_TTL_MICROS) {
+      return row;
+    }
+  }
+  return undefined;
 }
 
 function participantDisplayName(ctx: any, roomId: bigint, fallback: string): string {
@@ -476,6 +548,23 @@ export const joinRoom = spacetimedb.reducer(
   }
 );
 
+export const renameRoom = spacetimedb.reducer(
+  {
+    roomId: t.u64(),
+    title: t.string(),
+  },
+  (ctx, { roomId, title }) => {
+    const existing = requireRoom(ctx, roomId);
+    const roomTitle = cleanText(title, existing.title).slice(0, 96);
+    ctx.db.room.roomId.update({
+      ...existing,
+      title: roomTitle,
+      updatedAt: ctx.timestamp,
+    });
+    emitRoomEvent(ctx, roomId, 'room_renamed', `Room renamed to ${roomTitle}`);
+  }
+);
+
 export const upsertParticipant = spacetimedb.reducer(
   {
     roomId: t.u64(),
@@ -489,6 +578,44 @@ export const upsertParticipant = spacetimedb.reducer(
     upsertParticipantForSender(ctx, roomId, displayName, role, status, cursorNodeId);
     touchRoom(ctx, roomId);
     emitRoomEvent(ctx, roomId, 'participant_updated', `${displayName} updated`);
+  }
+);
+
+export const claimRoomMic = spacetimedb.reducer(
+  {
+    roomId: t.u64(),
+    displayName: t.string(),
+    status: t.string(),
+    cursorNodeId: t.option(t.u64()),
+  },
+  (ctx, { roomId, displayName, status, cursorNodeId }) => {
+    requireRoom(ctx, roomId);
+    const holder = activeRoomMicHolder(ctx, roomId);
+    if (holder !== undefined) {
+      throw new SenderError(`${cleanText(holder.displayName, 'Someone')} is already using the room mic`);
+    }
+
+    updateParticipantStatusForSender(
+      ctx,
+      roomId,
+      displayName,
+      cleanRoomMicStatus(status),
+      cursorNodeId
+    );
+    touchRoom(ctx, roomId);
+  }
+);
+
+export const releaseRoomMic = spacetimedb.reducer(
+  {
+    roomId: t.u64(),
+    displayName: t.string(),
+    cursorNodeId: t.option(t.u64()),
+  },
+  (ctx, { roomId, displayName, cursorNodeId }) => {
+    requireRoom(ctx, roomId);
+    updateParticipantStatusForSender(ctx, roomId, displayName, 'online', cursorNodeId);
+    touchRoom(ctx, roomId);
   }
 );
 
@@ -1201,12 +1328,29 @@ function rtIsWeakMapSignal(
   if (/\b(?:conversation summary|current discussion|general discussion|room discussion)\b/.test(normalizedTitle)) {
     return true;
   }
+  if (rtIsGenericClarificationSignal(title, summary)) return true;
   if (/^(?:um|uh|oh|yeah|ok|okay|right|that|sure|mm|hmm)\b/.test(normalizedTitle)) return true;
   if (normalizedSummary.length < 28) return true;
   if (/\b(?:only|just)\b.*\b(?:spoken|said|mentioned)\b/.test(normalizedSummary)) return true;
   if (/\b(?:no further discussion|brief conversation|nothing substantive)\b/.test(normalizedSummary)) return true;
 
   return false;
+}
+
+function rtIsGenericClarificationSignal(title: string, summary: string): boolean {
+  const text = rtNormalizeComparableText(`${title} ${summary}`);
+  if (/\b(?:clarify|clarifying|refine|restate|define)\b.*\b(?:main question|room question|central question|current question|topic)\b/.test(text)) {
+    return true;
+  }
+  if (/\b(?:main question|room question|central question|current question)\b/.test(text) && /\b(?:generic|unclear|unknown|not specified|needs clarification)\b/.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+function rtCanReplaceGenericRoot(nodes: RealtimeNodeRef[], seed: { title: string; summary: string }): boolean {
+  if (nodes.length > 1) return false;
+  return !rtIsGenericClarificationSignal(seed.title, seed.summary);
 }
 
 function rtSemanticGroupForSignal(
@@ -1468,7 +1612,7 @@ function rtEnsureRootNode(
 
   const root = rtFindRootNode(nodes);
   if (root) {
-    if (rtIsGenericRoot(root) && !rtIsWeakMapSignal(seed.title, seed.summary, 0.9)) {
+    if (rtIsGenericRoot(root) && rtCanReplaceGenericRoot(nodes, seed) && !rtIsWeakMapSignal(seed.title, seed.summary, 0.9)) {
       rtUpdateNode(ctx, root.id, {
         title: seed.title,
         summary: seed.summary,
@@ -1610,6 +1754,46 @@ export const realtimeMapSignal = spacetimedb.reducer(
     if (resolvedTask && !rtTaskExists(ctx, roomId, resolvedTask)) {
       rtCreateTask(ctx, roomId, node.id, resolvedTask, cleanUrgency === 'high' ? 2 : 1);
     }
+  }
+);
+
+export const deleteMapNode = spacetimedb.reducer(
+  {
+    nodeId: t.u64(),
+  },
+  (ctx, { nodeId }) => {
+    const existing = ctx.db.mapNode.nodeId.find(nodeId);
+    if (existing === null) {
+      throw new SenderError('map node not found');
+    }
+
+    for (const edge of [...ctx.db.mapEdge.roomId.filter(existing.roomId)]) {
+      if (edge.fromNodeId === nodeId || edge.toNodeId === nodeId) {
+        ctx.db.mapEdge.edgeId.delete(edge.edgeId);
+      }
+    }
+    for (const question of [...ctx.db.questionCandidate.roomId.filter(existing.roomId)]) {
+      if (question.nodeId === nodeId) ctx.db.questionCandidate.questionId.delete(question.questionId);
+    }
+    for (const task of [...ctx.db.agentTask.roomId.filter(existing.roomId)]) {
+      if (task.nodeId === nodeId) ctx.db.agentTask.taskId.delete(task.taskId);
+    }
+    for (const output of [...ctx.db.agentOutput.roomId.filter(existing.roomId)]) {
+      if (output.nodeId === nodeId) ctx.db.agentOutput.outputId.delete(output.outputId);
+    }
+    for (const row of [...ctx.db.finding.roomId.filter(existing.roomId)]) {
+      if (row.nodeId === nodeId) ctx.db.finding.findingId.delete(row.findingId);
+    }
+    const focus = ctx.db.roomFocus.roomId.find(existing.roomId);
+    if (focus !== null && focus.nodeId === nodeId) {
+      ctx.db.roomFocus.roomId.update({ ...focus, nodeId: undefined, label: 'Room synthesis', updatedAt: ctx.timestamp });
+    }
+    const agent = ctx.db.nodeAgent.nodeId.find(nodeId);
+    if (agent !== null) ctx.db.nodeAgent.nodeId.delete(nodeId);
+
+    ctx.db.mapNode.nodeId.delete(nodeId);
+    touchRoom(ctx, existing.roomId);
+    emitRoomEvent(ctx, existing.roomId, 'map_node_deleted', existing.title);
   }
 );
 

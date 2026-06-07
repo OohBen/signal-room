@@ -215,6 +215,11 @@ main {
   background: var(--panel-solid);
 }
 
+.room-pill.editing {
+  width: min(560px, 38vw);
+  padding-right: 6px;
+}
+
 .room-pill .q {
   min-width: 0;
   overflow: hidden;
@@ -225,6 +230,28 @@ main {
   color: var(--ink-2);
 }
 
+.room-title-button {
+  flex: 1 1 auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.room-title-input {
+  min-width: 0;
+  flex: 1 1 auto;
+  height: 26px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 750;
+}
+
 .room-pill .code {
   flex: 0 0 auto;
   padding: 3px 7px;
@@ -233,6 +260,30 @@ main {
   color: var(--muted);
   font-size: 11px;
   font-weight: 700;
+}
+
+.pill-icon {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pill-icon:hover {
+  border-color: var(--line);
+  background: var(--raise);
+  color: var(--accent);
+}
+
+.room-edit {
+  margin-left: -6px;
 }
 
 .bar-spacer {
@@ -662,11 +713,11 @@ main {
   width: 258px;
   transform: translate(-50%, -50%);
   text-align: left;
-  border: 1px solid rgba(35, 51, 77, 0.1);
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 14px 30px -25px rgba(18, 27, 43, 0.48);
+  background: color-mix(in srgb, var(--panel-solid) 94%, transparent);
+  box-shadow: var(--shadow-sm);
   transition:
     transform 0.16s ease,
     border-color 0.16s ease,
@@ -695,7 +746,7 @@ main {
   padding: 17px;
   border-color: var(--ring);
   background:
-    linear-gradient(180deg, rgba(38, 104, 232, 0.12), transparent 82%),
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 82%),
     var(--panel-solid);
 }
 
@@ -1312,6 +1363,15 @@ button.feed-item:hover,
   color: var(--ink);
 }
 
+.inline-action.danger {
+  color: var(--red);
+}
+
+.inline-action.danger:hover {
+  border-color: color-mix(in srgb, var(--red) 44%, var(--line));
+  background: var(--red-bg);
+}
+
 .node-edit-form {
   display: flex;
   flex-direction: column;
@@ -1619,6 +1679,15 @@ button.feed-item:hover,
   color: var(--ink);
 }
 
+.btn:disabled,
+.primary-btn:disabled,
+.ghost-btn:disabled,
+.danger-btn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  filter: none;
+}
+
 .danger-btn {
   background: var(--red);
   color: #ffffff;
@@ -1644,6 +1713,7 @@ button.feed-item:hover,
   width: auto;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 10px;
   border: 1px solid var(--line-strong);
@@ -1652,11 +1722,6 @@ button.feed-item:hover,
   box-shadow: var(--shadow);
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
-}
-
-.inspector-shell + .capture-dock,
-.capture-dock {
-  max-height: 68px;
 }
 
 .capture-dock-status {
@@ -1690,6 +1755,42 @@ button.feed-item:hover,
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.capture-zoom-form {
+  flex: 0 1 360px;
+  min-width: 280px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.capture-zoom-form input,
+.zoom-inline-input {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  padding: 0 10px;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 700;
+  outline: none;
+}
+
+.capture-zoom-form input {
+  flex: 1;
+}
+
+.capture-zoom-form input:focus,
+.zoom-inline-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.zoom-submit-btn {
+  white-space: nowrap;
 }
 
 .capture-wave {
@@ -1819,6 +1920,41 @@ button.feed-item:hover,
   display: flex;
   flex-direction: column;
   gap: 9px;
+}
+
+.profile-name-form {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  padding: 10px;
+}
+
+.profile-name-form label {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 800;
+}
+
+.profile-name-form input {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-solid);
+  color: var(--ink);
+  padding: 0 10px;
+  font-size: 12.5px;
+  font-weight: 750;
+  outline: none;
+}
+
+.profile-name-form input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 textarea {
@@ -2545,8 +2681,8 @@ a.evidence-title:hover {
 .map-edges .edge-group .lit {
   fill: none;
   stroke: color-mix(in srgb, var(--edge) 70%, var(--accent));
-  stroke-width: 1.6;
-  opacity: 0.32;
+  stroke-width: 1.8;
+  opacity: 0.52;
   transition: stroke 0.2s ease, opacity 0.2s ease;
 }
 
@@ -2557,11 +2693,11 @@ a.evidence-title:hover {
 }
 
 .map-edges .edge-group.dim {
-  opacity: 0.14;
+  opacity: 0.42;
 }
 
 .edge-label-group {
-  opacity: 0.45;
+  opacity: 0.9;
   transition: opacity 0.2s ease;
 }
 
@@ -2570,19 +2706,19 @@ a.evidence-title:hover {
 }
 
 .edge-group.dim .edge-label-group {
-  opacity: 0.12;
+  opacity: 0.72;
 }
 
 .edge-label-group rect {
-  fill: color-mix(in srgb, var(--panel-solid) 88%, transparent);
-  stroke: none;
+  fill: color-mix(in srgb, var(--panel-solid) 94%, transparent);
+  stroke: var(--line);
 }
 
 .edge-label {
-  fill: var(--faint);
+  fill: var(--ink-2);
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 850;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   stroke: none;

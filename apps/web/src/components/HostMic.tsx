@@ -1,4 +1,4 @@
-import { Bot, Mic, MicOff, Radio, Send } from "lucide-react";
+import { Bot, Mic, MicOff, Radio, Send, Video } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { SignalRoomSnapshot } from "../adapters/roomAdapter";
 import { GATEWAY_URL, SPACETIME_DATABASE } from "../config";
@@ -18,6 +18,9 @@ interface HostMicProps {
 const defaultChunk =
   "Question: will the Strait of Hormuz reopen within 72 hours? Michelle says China and India public pressure on Iran could matter. Ben asks: agent, look up recent China and India statements on Iran and whether oil markets are pricing a ceasefire.";
 
+const MIC_STATUS_TTL_MS = 30_000;
+const MIC_HEARTBEAT_MS = 8_000;
+
 export function HostMic({ room, isActive, onToast }: HostMicProps) {
   const { state, adapterStatus, actions } = room;
   const [chunk, setChunk] = useState(defaultChunk);
@@ -28,6 +31,9 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   const [researching, setResearching] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState("Mic idle");
   const [voiceStarting, setVoiceStarting] = useState(false);
+  const [zoomJoinUrl, setZoomJoinUrl] = useState("");
+  const [zoomJoining, setZoomJoining] = useState(false);
+  const [micClock, setMicClock] = useState(() => Date.now());
   const realtimeSessionRef = useRef<RealtimeTranscriptionSession | null>(null);
   const pendingRouteTranscriptRef = useRef("");
   const liveRoutingRef = useRef(true);
@@ -48,6 +54,15 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const sharedRoomReady = adapterStatus.mode === "spacetime" && Boolean(adapterStatus.roomId);
+  const remoteMicHolder = state.presence.find(
+    (person) =>
+      !person.isSelf &&
+      (person.status === "mic_live" || person.status === "mic_starting") &&
+      micClock - person.lastSeenAtMs <= MIC_STATUS_TTL_MS
+  );
+  const micLockedByOther = Boolean(remoteMicHolder);
+  const micUnavailableLabel = remoteMicHolder ? `${remoteMicHolder.label} is using the room mic` : undefined;
+  const queuedResearchTaskCount = state.queueItems.filter((item) => /^Agent task/i.test(item.title)).length;
 
   // Direct "Hey agent, <question>" → fast /ask lane: answered straight into Live signals,
   // no map node, no queued task. Returns true if it fired.
@@ -82,6 +97,33 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const interval = window.setInterval(() => setMicClock(Date.now()), 5_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!sharedRoomReady || (!voiceStarting && !listening)) return;
+
+    const status = listening ? "mic_live" : "mic_starting";
+    void actions.claimRoomMic(status);
+    const interval = window.setInterval(() => {
+      void actions.claimRoomMic(status);
+    }, MIC_HEARTBEAT_MS);
+    return () => window.clearInterval(interval);
+  }, [actions, listening, sharedRoomReady, voiceStarting]);
+
+  useEffect(() => {
+    if (!sharedRoomReady || queuedResearchTaskCount === 0) return;
+
+    void runResearchWorker(true);
+    const interval = window.setInterval(() => {
+      void runResearchWorker(true);
+    }, 7000);
+    return () => window.clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queuedResearchTaskCount, sharedRoomReady, state.roomCode]);
+
   async function submitManualChunk() {
     const text = chunk.trim();
     if (!text) return;
@@ -107,6 +149,37 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     onToast(next ? "Live routing enabled" : "Live routing paused");
   }
 
+  async function startZoomBot() {
+    const joinUrl = zoomJoinUrl.trim();
+    if (!joinUrl || zoomJoining) return;
+    if (!sharedRoomReady) {
+      onToast("Shared room still connecting");
+      return;
+    }
+
+    setZoomJoining(true);
+    try {
+      const response = await fetch(`${GATEWAY_URL}/zoom-bot/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roomCode: state.roomCode,
+          joinUrl,
+        }),
+      });
+      const payload = (await response.json()) as { ok?: boolean; message?: string };
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.message || `Gateway returned ${response.status}`);
+      }
+      setZoomJoinUrl("");
+      onToast("Zoom bot is joining this room");
+    } catch (error: unknown) {
+      onToast(error instanceof Error ? error.message : "Could not start the Zoom bot");
+    } finally {
+      setZoomJoining(false);
+    }
+  }
+
   // ── Realtime mic: browser ↔ OpenAI over WebRTC ──────────────────────────────
   // The gateway only mints an ephemeral token; audio never passes through it.
   // Each finalized transcript is written to the shared transcript log and routed
@@ -116,6 +189,15 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     if (voiceStarting || listening) return;
     if (!sharedRoomReady) {
       onToast("Shared room still connecting");
+      return;
+    }
+    if (remoteMicHolder) {
+      onToast(`${remoteMicHolder.label} is already using the room mic`);
+      return;
+    }
+    const claimed = await actions.claimRoomMic("mic_starting");
+    if (!claimed) {
+      onToast("Room mic is already in use");
       return;
     }
     captureShouldRunRef.current = true;
@@ -170,6 +252,11 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
 
     // Persist to the shared transcript log first so everyone sees the turn.
     await actions.addTranscriptChunk(clean).catch(() => undefined);
+
+    if (isLikelyIncompleteTurn(clean)) {
+      setVoiceStatus("Waiting for full thought…");
+      return;
+    }
 
     // Direct "Hey agent, …" → fast lane only (no map card).
     if (maybeAskAgent(clean)) return;
@@ -332,6 +419,7 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     setInterim("");
     setVoiceStatus("Mic idle");
     stopRequestedRef.current = false;
+    void actions.releaseRoomMic();
   }
 
   function clearReconnectTimer() {
@@ -476,24 +564,35 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
             {routing ? "Routing" : liveRouting ? "Routing live" : "Route"}
           </button>
           <button
-            className="ghost-btn"
-            type="button"
-            onClick={() => void runResearchWorker()}
-            disabled={!sharedRoomReady || researching}
-          >
-            <Bot size={16} strokeWidth={2.1} />
-            {researching ? "Working" : "Work task"}
-          </button>
-          <button
             className={listening ? "danger-btn" : "primary-btn"}
             type="button"
             onClick={listening ? stopListening : () => void startListening()}
-            disabled={voiceStarting || (!listening && !sharedRoomReady)}
+            disabled={voiceStarting || (!listening && (!sharedRoomReady || micLockedByOther))}
+            title={!listening && micUnavailableLabel ? micUnavailableLabel : undefined}
           >
             {listening ? <MicOff size={16} strokeWidth={2.1} /> : <Mic size={16} strokeWidth={2.1} />}
-            {listening ? "Stop" : voiceStarting ? "Starting" : "Start mic"}
+            {listening ? "Stop" : micLockedByOther ? "Mic in use" : voiceStarting ? "Starting" : "Start mic"}
           </button>
         </div>
+        <form
+          className="capture-zoom-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void startZoomBot();
+          }}
+        >
+          <input
+            type="url"
+            value={zoomJoinUrl}
+            onChange={(event) => setZoomJoinUrl(event.target.value)}
+            placeholder="Zoom invite link"
+            aria-label="Zoom invite link"
+          />
+          <button className="ghost-btn zoom-submit-btn" type="submit" disabled={zoomJoining || !zoomJoinUrl.trim()}>
+            <Video size={16} strokeWidth={2.1} />
+            <span>{zoomJoining ? "Joining" : "Join Zoom"}</span>
+          </button>
+        </form>
       </aside>
     );
   }
@@ -530,22 +629,14 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
                 {routing ? "Routing" : liveRouting ? "Routing live" : "Route live mic"}
               </button>
               <button
-                className="ghost-btn"
-                type="button"
-                onClick={() => void runResearchWorker()}
-                disabled={!sharedRoomReady || researching}
-              >
-                <Bot size={17} strokeWidth={2.1} />
-                {researching ? "Researching" : "Work one task"}
-              </button>
-              <button
                 className={listening ? "danger-btn" : "primary-btn"}
                 type="button"
                 onClick={listening ? stopListening : () => void startListening()}
-                disabled={voiceStarting || (!listening && !sharedRoomReady)}
+                disabled={voiceStarting || (!listening && (!sharedRoomReady || micLockedByOther))}
+                title={!listening && micUnavailableLabel ? micUnavailableLabel : undefined}
               >
                 {listening ? <MicOff size={17} strokeWidth={2.1} /> : <Mic size={17} strokeWidth={2.1} />}
-                {listening ? "Stop mic" : voiceStarting ? "Starting mic" : "Start mic"}
+                {listening ? "Stop mic" : micLockedByOther ? "Mic in use" : voiceStarting ? "Starting mic" : "Start mic"}
               </button>
             </div>
           </div>
@@ -557,6 +648,23 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
               onChange={(event) => setChunk(event.target.value)}
             />
             <div className="compose-actions">
+              <input
+                className="zoom-inline-input"
+                type="url"
+                value={zoomJoinUrl}
+                onChange={(event) => setZoomJoinUrl(event.target.value)}
+                placeholder="Zoom invite link"
+                aria-label="Zoom invite link"
+              />
+              <button
+                className="ghost-btn"
+                type="button"
+                onClick={() => void startZoomBot()}
+                disabled={zoomJoining || !zoomJoinUrl.trim()}
+              >
+                <Video size={17} strokeWidth={2.1} />
+                {zoomJoining ? "Joining Zoom" : "Join Zoom"}
+              </button>
               <button
                 className="primary-btn"
                 type="button"
@@ -608,6 +716,7 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
 function hasMapworthySignal(transcript: string): boolean {
   const compact = transcript.trim().replace(/\s+/g, " ");
   if (!compact) return false;
+  if (isLikelyIncompleteTurn(compact)) return false;
   const words = compact.split(/\s+/).filter(Boolean);
   const lower = compact.toLowerCase();
 
@@ -619,4 +728,14 @@ function hasMapworthySignal(transcript: string): boolean {
   }
 
   return false;
+}
+
+function isLikelyIncompleteTurn(text: string): boolean {
+  const compact = text.trim().replace(/\s+/g, " ");
+  if (!compact) return true;
+  const lower = compact.toLowerCase();
+  const words = compact.split(/\s+/).filter(Boolean);
+  if (words.length <= 2) return true;
+  if (/[.…]{2,}$/.test(compact)) return true;
+  return /\b(?:and|or|um|uh|so|sort of|kind of|like)\s*[.?!…]*$/i.test(lower);
 }
