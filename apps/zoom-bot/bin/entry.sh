@@ -38,9 +38,7 @@ setup-spacetime-auth() {
     exit 1
   fi
 
-  export SPACETIME_ROOT_DIR="${SPACETIME_ROOT_DIR:-/tmp/spacetime}"
-  mkdir -p "$SPACETIME_ROOT_DIR"
-  spacetime --root-dir "$SPACETIME_ROOT_DIR" login --token "$SPACETIME_TOKEN" >/dev/null || {
+  spacetime login --token "$SPACETIME_TOKEN" >/dev/null || {
     echo "fatal: spacetime login --token failed"
     exit 1
   }
@@ -53,7 +51,7 @@ stage-zoom-sdk() {
     exit 1
   fi
 
-  export ZOOM_SDK_RUNTIME_DIR="${ZOOM_SDK_RUNTIME_DIR:-/tmp/zoom-sdk-runtime}"
+  export ZOOM_SDK_RUNTIME_DIR="${ZOOM_SDK_RUNTIME_DIR:-/var/lib/signal-room/zoom-sdk-runtime}"
   rm -rf "$ZOOM_SDK_RUNTIME_DIR"
   mkdir -p "$ZOOM_SDK_RUNTIME_DIR"
   cp -a "$source_dir"/. "$ZOOM_SDK_RUNTIME_DIR"/
@@ -92,6 +90,9 @@ build() {
 run() {
   export QT_LOGGING_RULES="*.debug=false;*.warning=false"
   setup-spacetime-auth
+  # The container image installs the SpacetimeDB CLI into its default root.
+  # Ignore stale deployment env that points at an empty temp root.
+  unset SPACETIME_ROOT_DIR
 
   # Make sure stale socket state from the upstream sample cannot interfere.
   rm -f /tmp/meeting.sock

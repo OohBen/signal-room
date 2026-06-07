@@ -3,7 +3,7 @@ FROM ubuntu:24.04 AS base
 SHELL ["/bin/bash", "-c"]
 
 ENV project=meeting-sdk-linux-sample
-ENV cwd=/tmp/$project
+ENV cwd=/opt/signal-room/$project
 
 WORKDIR $cwd
 

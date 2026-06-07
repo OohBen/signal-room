@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     volumes:
       # Proprietary Zoom SDK files are not committed or baked into the image.
-      - ${ZOOM_SDK_DIR:-./lib/zoomsdk}:/tmp/meeting-sdk-linux-sample/lib/zoomsdk:ro
+      - ${ZOOM_SDK_DIR:-./lib/zoomsdk}:/opt/signal-room/meeting-sdk-linux-sample/lib/zoomsdk:ro
     extra_hosts:
       # Only used when BRIDGE_GATEWAY_URL points at a local gateway from Docker.
       - "host.docker.internal:host-gateway"
@@ -17,7 +17,6 @@ services:
       ZOOM_JOIN_URL: "${ZOOM_JOIN_URL:-}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       SPACETIME_TOKEN: "${SPACETIME_TOKEN:-}"
-      SPACETIME_ROOT_DIR: "${SPACETIME_ROOT_DIR:-/tmp/spacetime}"
       BRIDGE_GATEWAY_URL: "${BRIDGE_GATEWAY_URL:-https://sig-api.benautomates.com}"
       BRIDGE_ROOM_CODE: "${BRIDGE_ROOM_CODE:-ZOOM-LIVE}"
       BRIDGE_DISPLAY_NAME: "${BRIDGE_DISPLAY_NAME:-Signal Room Notetaker}"

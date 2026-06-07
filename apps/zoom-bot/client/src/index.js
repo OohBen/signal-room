@@ -51,7 +51,7 @@ function requiredEnv(name) {
 }
 
 function spacetimeArgs(args) {
-  return SPACETIME_ROOT_DIR ? ["--root-dir", SPACETIME_ROOT_DIR, ...args] : args;
+  return SPACETIME_ROOT_DIR ? [`--root-dir=${SPACETIME_ROOT_DIR}`, ...args] : args;
 }
 
 function sqlString(value) {

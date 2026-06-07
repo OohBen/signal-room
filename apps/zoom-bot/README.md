@@ -81,6 +81,7 @@ This package is cloud-forward:
 - SpacetimeDB auth is token-based through `SPACETIME_TOKEN`.
 - The default gateway target is the deployed gateway.
 - The Zoom SDK is mounted at runtime from `ZOOM_SDK_DIR` because it cannot be committed.
+- `ZOOM_SDK_DIR` is the durable server-side SDK location; the container stages a writable SDK copy from it at startup.
 - `restart: unless-stopped` is enabled for the single running meeting bot.
 
 For a VPS deploy:
