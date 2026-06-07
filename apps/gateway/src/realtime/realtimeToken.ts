@@ -2,10 +2,10 @@ import { getSecret } from "../config/env.js";
 import { ACTION_REALTIME_ROOM_TOOLS, buildOperatorInstructions } from "./operatorConfig.js";
 
 const DEFAULT_REALTIME_MODEL = "gpt-realtime-2";
-// gpt-realtime-whisper is OpenAI's natively-streaming transcription model built
-// for realtime sessions (lowest latency). Swap via SIGNAL_ROOM_TRANSCRIPTION_MODEL,
-// and tune latency vs accuracy via SIGNAL_ROOM_TRANSCRIBE_DELAY (minimal|low|medium|high|xhigh).
-const DEFAULT_TRANSCRIPTION_MODEL = "gpt-realtime-whisper";
+// gpt-4o-mini-transcribe is cheap enough (~$0.003/min) and accurate. For the lower-latency
+// streaming path, set SIGNAL_ROOM_TRANSCRIPTION_MODEL=gpt-realtime-whisper (OpenAI's natively-
+// streaming realtime transcriber) and optionally SIGNAL_ROOM_TRANSCRIBE_DELAY (minimal|low|medium|high|xhigh).
+const DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe-2025-12-15";
 
 export interface RealtimeTokenResult {
   value: string;
