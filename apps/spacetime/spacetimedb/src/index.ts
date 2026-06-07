@@ -1098,3 +1098,600 @@ export const setNodeAgent = spacetimedb.reducer(
   }
 );
 
+// ---------------------------------------------------------------------------
+// Realtime operator reducers
+//
+// Faithful in-module port of gateway/src/realtime/realtimeRoomTools.ts so the
+// browser can call the operator logic directly instead of shelling out to the
+// `spacetime` CLI. All helpers below are pure string operations (deterministic),
+// dedup is done via in-module table reads, and inserts return the row carrying
+// the autoInc id used to chain edges.
+// ---------------------------------------------------------------------------
+
+interface RealtimeNodeRef {
+  id: bigint;
+  title: string;
+  summary: string;
+  nodeType: string;
+  urgency: string;
+}
+
+function rtCleanString(value: string | undefined, fallback: string, maxLength: number): string {
+  if (typeof value !== 'string') return fallback;
+  const clean = value
+    .trim()
+    .normalize('NFKC')
+    .replace(/[‐‑‒–—]/g, '-')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/\s+/g, ' ');
+  return clean ? clean.slice(0, maxLength) : fallback;
+}
+
+function rtCleanOptionalString(value: string | undefined, maxLength: number): string | undefined {
+  const clean = rtCleanString(value, '', maxLength);
+  return clean || undefined;
+}
+
+function rtCleanEnum<T extends string>(value: string | undefined, allowed: T[], fallback: T): T {
+  return typeof value === 'string' && allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+function rtNormalizeComparableText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFKC')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\b(?:the|and|or|on|of|to|for|a|an|public|current|overall)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function rtTextSimilarity(left: string, right: string): number {
+  const leftTokens = new Set(left.split(' ').filter(Boolean));
+  const rightTokens = new Set(right.split(' ').filter(Boolean));
+  if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
+  let intersection = 0;
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) intersection += 1;
+  }
+  return intersection / Math.max(leftTokens.size, rightTokens.size);
+}
+
+function rtFindSimilarNode(nodes: RealtimeNodeRef[], title: string): RealtimeNodeRef | undefined {
+  if (!title) return undefined;
+  const normalizedTitle = rtNormalizeComparableText(title);
+  return nodes.find((node) => {
+    const normalizedNodeTitle = rtNormalizeComparableText(node.title);
+    if (normalizedNodeTitle === normalizedTitle) return true;
+    return rtTextSimilarity(normalizedNodeTitle, normalizedTitle) >= 0.86;
+  });
+}
+
+function rtFindRootNode(nodes: RealtimeNodeRef[]): RealtimeNodeRef | undefined {
+  return nodes.find((node) => node.nodeType === 'root') ?? nodes[0];
+}
+
+function rtIsGenericRoot(node: RealtimeNodeRef): boolean {
+  const normalizedTitle = rtNormalizeComparableText(node.title);
+  const normalizedSummary = rtNormalizeComparableText(node.summary);
+  if (/\b(?:current discussion|working question|room discussion|general discussion)\b/.test(normalizedTitle)) {
+    return true;
+  }
+  if (/\blive topic detected by realtime room operator\b/.test(normalizedSummary)) {
+    return true;
+  }
+  return false;
+}
+
+function rtIsWeakMapSignal(
+  title: string,
+  summary: string,
+  confidence: number | undefined,
+  options: { allowLowConfidence?: boolean } = {}
+): boolean {
+  const normalizedTitle = rtNormalizeComparableText(title);
+  const normalizedSummary = rtNormalizeComparableText(summary);
+  const numericConfidence =
+    typeof confidence === 'number' && Number.isFinite(confidence) ? confidence : undefined;
+
+  if (!options.allowLowConfidence && numericConfidence !== undefined && numericConfidence < 0.58) return true;
+  if (/\b(?:brief utterance|tiny utterance|short utterance|filler|acknowledgement|acknowledgment)\b/.test(normalizedTitle)) {
+    return true;
+  }
+  if (/\b(?:conversation summary|current discussion|general discussion|room discussion)\b/.test(normalizedTitle)) {
+    return true;
+  }
+  if (/^(?:um|uh|oh|yeah|ok|okay|right|that|sure|mm|hmm)\b/.test(normalizedTitle)) return true;
+  if (normalizedSummary.length < 28) return true;
+  if (/\b(?:only|just)\b.*\b(?:spoken|said|mentioned)\b/.test(normalizedSummary)) return true;
+  if (/\b(?:no further discussion|brief conversation|nothing substantive)\b/.test(normalizedSummary)) return true;
+
+  return false;
+}
+
+function rtSemanticGroupForSignal(
+  title: string,
+  summary: string
+): { title: string; summary: string; label: string } | undefined {
+  const text = rtNormalizeComparableText(`${title} ${summary}`);
+  if (/\b(?:environments?|school|high school|stuyvesant|classmate|friend|peer|teacher|upbringing|education)\b/.test(text)) {
+    return {
+      title: 'Environment and upbringing',
+      summary: 'School, peers, family setting, and other surrounding conditions that may shape the outcome.',
+      label: 'environment',
+    };
+  }
+  if (/\b(?:genetic|gene|inherited|parent|sibling|family|cousin|aunt|relative)\b/.test(text)) {
+    return {
+      title: 'Genetics and family background',
+      summary: 'Inherited traits and family patterns that may explain part of the outcome.',
+      label: 'genetics',
+    };
+  }
+  if (/\b(?:hard work|effort|practice|discipline|studying|study habit|work ethic|motivation)\b/.test(text)) {
+    return {
+      title: 'Effort and work habits',
+      summary: 'Practice, discipline, and repeated effort as a separate explanation path.',
+      label: 'effort',
+    };
+  }
+  return undefined;
+}
+
+function rtIsPublicResearchableTask(task: string, title: string, summary: string): boolean {
+  const text = rtNormalizeComparableText(`${task} ${title} ${summary}`);
+  if (/\b(?:my|me|our|friend|friends|room|scrabble|diet coke|phone|cake|victor|ben|michelle)\b/.test(text)) {
+    return (
+      /\b(?:agent|look up|research|find current|public evidence|current evidence)\b/.test(text) &&
+      /\b(?:study|research|market|stock|company|news|filing|price|revenue|sales|evidence)\b/.test(text)
+    );
+  }
+  return /\b(?:stock|market|price|bitcoin|election|revenue|sales|filing|earnings|company|tariff|oil|energy|geopolitic|war|trade|climate|policy|inflation|rates|news|public evidence|current evidence|latest|source|data|transported|shipping|strait|hormuz|iran|india|pakistan|russia|putin|ayatollah|regime|domestic politics|mediation|diplomacy|sanction|blockade|ceasefire|reopen|closed|closure)\b/.test(text);
+}
+
+function rtDefaultTaskForSignal(kind: string, title: string, summary: string): string | undefined {
+  if (kind !== 'topic' && kind !== 'factor' && kind !== 'claim' && kind !== 'question' && kind !== 'topic_shift') {
+    return undefined;
+  }
+  if (!rtIsPublicResearchableTask(title, title, summary)) return undefined;
+  return rtCleanString(
+    `Fact-check and monitor current public evidence for "${title}" in this room context: ${summary}`,
+    '',
+    240
+  );
+}
+
+function rtListNodes(ctx: any, roomId: bigint): RealtimeNodeRef[] {
+  return [...ctx.db.mapNode.roomId.filter(roomId)].map((node: any) => ({
+    id: node.nodeId,
+    title: node.title,
+    summary: node.summary,
+    nodeType: node.nodeType,
+    urgency: node.urgency,
+  }));
+}
+
+function rtQuestionExists(ctx: any, roomId: bigint, question: string): boolean {
+  return [...ctx.db.questionCandidate.roomId.filter(roomId)].some(
+    (row: any) => row.question === question
+  );
+}
+
+function rtTaskExists(ctx: any, roomId: bigint, instructions: string): boolean {
+  return [...ctx.db.agentTask.roomId.filter(roomId)].some(
+    (row: any) => row.instructions === instructions
+  );
+}
+
+function rtCreateNode(
+  ctx: any,
+  roomId: bigint,
+  input: {
+    title: string;
+    summary: string;
+    nodeType: string;
+    source: string;
+    urgency: string;
+    x: number;
+    y: number;
+  }
+): RealtimeNodeRef {
+  const inserted = ctx.db.mapNode.insert({
+    nodeId: 0n,
+    roomId,
+    title: input.title,
+    summary: input.summary,
+    nodeType: input.nodeType,
+    source: input.source,
+    urgency: input.urgency,
+    sourceRefId: undefined,
+    x: input.x,
+    y: input.y,
+    createdBy: ctx.sender,
+    createdAt: ctx.timestamp,
+    updatedAt: ctx.timestamp,
+  });
+  touchRoom(ctx, roomId);
+  emitRoomEvent(ctx, roomId, 'map_node_created', inserted.title, inserted.nodeId);
+  return {
+    id: inserted.nodeId,
+    title: inserted.title,
+    summary: inserted.summary,
+    nodeType: inserted.nodeType,
+    urgency: inserted.urgency,
+  };
+}
+
+function rtUpdateNode(
+  ctx: any,
+  nodeId: bigint,
+  input: {
+    title: string;
+    summary: string;
+    nodeType: string;
+    source: string;
+    urgency: string;
+    x: number;
+    y: number;
+  }
+): void {
+  const existing = ctx.db.mapNode.nodeId.find(nodeId);
+  if (existing === null) {
+    throw new SenderError('map node not found');
+  }
+  const updated = {
+    ...existing,
+    title: input.title,
+    summary: input.summary,
+    nodeType: input.nodeType,
+    source: input.source,
+    urgency: input.urgency,
+    x: input.x,
+    y: input.y,
+    updatedAt: ctx.timestamp,
+  };
+  ctx.db.mapNode.nodeId.update(updated);
+  touchRoom(ctx, existing.roomId);
+  emitRoomEvent(ctx, existing.roomId, 'map_node_updated', updated.title, nodeId);
+}
+
+function rtCreateEdge(
+  ctx: any,
+  roomId: bigint,
+  from: RealtimeNodeRef,
+  to: RealtimeNodeRef,
+  label: string
+): void {
+  if (from.id === to.id) return;
+  const existing = first(ctx.db.mapEdge.by_room_nodes.filter([roomId, from.id, to.id]));
+  if (existing !== undefined) return;
+  ctx.db.mapEdge.insert({
+    edgeId: 0n,
+    roomId,
+    fromNodeId: from.id,
+    toNodeId: to.id,
+    label,
+    edgeType: 'related',
+    strength: 1,
+    createdBy: ctx.sender,
+    createdAt: ctx.timestamp,
+  });
+  touchRoom(ctx, roomId);
+  emitRoomEvent(ctx, roomId, 'map_edge_created', label || 'Map edge');
+}
+
+function rtSetRoomFocus(ctx: any, roomId: bigint, nodeId: bigint | undefined, label: string): void {
+  const existing = ctx.db.roomFocus.roomId.find(roomId);
+  const focus = {
+    roomId,
+    nodeId,
+    label,
+    setBy: ctx.sender,
+    updatedAt: ctx.timestamp,
+  };
+  if (existing === null) {
+    ctx.db.roomFocus.insert(focus);
+  } else {
+    ctx.db.roomFocus.roomId.update(focus);
+  }
+  touchRoom(ctx, roomId);
+  emitRoomEvent(ctx, roomId, 'room_focus_set', label || 'Room focus', nodeId);
+}
+
+function rtCreateQuestion(
+  ctx: any,
+  roomId: bigint,
+  nodeId: bigint | undefined,
+  question: string,
+  urgency: string
+): void {
+  ctx.db.questionCandidate.insert({
+    questionId: 0n,
+    roomId,
+    nodeId,
+    question,
+    source: 'Realtime operator',
+    urgency,
+    status: 'open',
+    createdBy: ctx.sender,
+    createdAt: ctx.timestamp,
+    expiresAt: undefined,
+  });
+  touchRoom(ctx, roomId);
+  emitRoomEvent(ctx, roomId, 'question_candidate_created', shortTitle(question, 'Question'));
+}
+
+function rtCreateTask(
+  ctx: any,
+  roomId: bigint,
+  nodeId: bigint | undefined,
+  task: string,
+  priority: number
+): void {
+  const inserted = ctx.db.agentTask.insert({
+    taskId: 0n,
+    roomId,
+    nodeId,
+    taskType: 'quick_research',
+    instructions: task,
+    status: 'queued',
+    priority,
+    resultSummary: '',
+    createdBy: ctx.sender,
+    claimedBy: undefined,
+    createdAt: ctx.timestamp,
+    claimedAt: undefined,
+    completedAt: undefined,
+    updatedAt: ctx.timestamp,
+  });
+  touchRoom(ctx, roomId);
+  emitRoomEvent(
+    ctx,
+    roomId,
+    'agent_task_created',
+    shortTitle(inserted.instructions, 'Agent task'),
+    nodeId,
+    inserted.taskId
+  );
+}
+
+function rtEnsureRootNode(
+  ctx: any,
+  roomId: bigint,
+  nodes: RealtimeNodeRef[],
+  seed: { title: string; summary: string; urgency: string },
+  connectedTo: string | undefined
+): RealtimeNodeRef {
+  const connectedTitle = rtCleanString(connectedTo, '', 72);
+  const connectedNode = rtFindSimilarNode(nodes, connectedTitle);
+  if (connectedNode) return connectedNode;
+
+  const root = rtFindRootNode(nodes);
+  if (root) {
+    if (rtIsGenericRoot(root) && !rtIsWeakMapSignal(seed.title, seed.summary, 0.9)) {
+      rtUpdateNode(ctx, root.id, {
+        title: seed.title,
+        summary: seed.summary,
+        nodeType: 'root',
+        source: 'Realtime operator',
+        urgency: seed.urgency,
+        x: 500,
+        y: 280,
+      });
+      root.title = seed.title;
+      root.summary = seed.summary;
+      root.nodeType = 'root';
+      root.urgency = seed.urgency;
+    }
+    return root;
+  }
+
+  const createdRoot = rtCreateNode(ctx, roomId, {
+    title: connectedTitle || seed.title,
+    summary: seed.summary || 'Live topic detected by the Realtime room operator.',
+    nodeType: 'root',
+    source: 'Realtime operator',
+    urgency: seed.urgency,
+    x: 500,
+    y: 280,
+  });
+  rtSetRoomFocus(ctx, roomId, createdRoot.id, createdRoot.title);
+  nodes.push(createdRoot);
+  return createdRoot;
+}
+
+function rtEnsureSemanticParent(
+  ctx: any,
+  roomId: bigint,
+  nodes: RealtimeNodeRef[],
+  root: RealtimeNodeRef,
+  node: RealtimeNodeRef,
+  signal: { title: string; summary: string; kind: string }
+): RealtimeNodeRef {
+  const group = rtSemanticGroupForSignal(signal.title, signal.summary);
+  if (!group || signal.kind === 'topic' || signal.kind === 'topic_shift') return root;
+
+  const normalizedGroupTitle = rtNormalizeComparableText(group.title);
+  if (rtNormalizeComparableText(node.title) === normalizedGroupTitle) return root;
+  const existing = nodes.find((candidate) => {
+    if (candidate.id === node.id) return false;
+    if (candidate.nodeType !== 'branch' && rtNormalizeComparableText(candidate.title) !== normalizedGroupTitle) {
+      return false;
+    }
+    return rtSemanticGroupForSignal(candidate.title, candidate.summary)?.title === group.title;
+  });
+  if (existing) return existing;
+
+  const parent = rtCreateNode(ctx, roomId, {
+    title: group.title,
+    summary: group.summary,
+    nodeType: 'branch',
+    source: 'Realtime operator',
+    urgency: 'normal',
+    x: 500,
+    y: 280,
+  });
+  nodes.push(parent);
+  rtCreateEdge(ctx, roomId, root, parent, group.label);
+  return parent;
+}
+
+export const realtimeMapSignal = spacetimedb.reducer(
+  {
+    roomId: t.u64(),
+    kind: t.string(),
+    title: t.string(),
+    summary: t.string(),
+    connectedTo: t.option(t.string()),
+    urgency: t.string(),
+    question: t.option(t.string()),
+    task: t.option(t.string()),
+    confidence: t.option(t.f64()),
+  },
+  (ctx, { roomId, kind, title, summary, connectedTo, urgency, question, task, confidence }) => {
+    requireRoom(ctx, roomId);
+
+    const cleanTitle = rtCleanString(title, '', 72);
+    const cleanSummary = rtCleanString(summary, '', 220);
+    if (!cleanTitle || !cleanSummary) return;
+
+    const nodes = rtListNodes(ctx, roomId);
+    if (rtIsWeakMapSignal(cleanTitle, cleanSummary, confidence, { allowLowConfidence: nodes.length === 0 })) {
+      return;
+    }
+
+    const cleanKind = rtCleanEnum(
+      kind,
+      ['topic', 'factor', 'question', 'claim', 'topic_shift', 'summary'],
+      'topic'
+    );
+    const cleanUrgency = rtCleanEnum(urgency, ['normal', 'high'], 'normal');
+
+    const root = rtEnsureRootNode(
+      ctx,
+      roomId,
+      nodes,
+      { title: cleanTitle, summary: cleanSummary, urgency: cleanUrgency },
+      connectedTo
+    );
+    const existing = rtFindSimilarNode(nodes, cleanTitle);
+
+    const node =
+      existing ??
+      rtCreateNode(ctx, roomId, {
+        title: cleanTitle,
+        summary: cleanSummary,
+        nodeType: cleanKind,
+        source: 'Realtime operator',
+        urgency: cleanUrgency,
+        x: 500,
+        y: 280,
+      });
+
+    if (root.id !== node.id) {
+      const parent = rtEnsureSemanticParent(ctx, roomId, nodes, root, node, {
+        title: cleanTitle,
+        summary: cleanSummary,
+        kind: cleanKind,
+      });
+      rtCreateEdge(ctx, roomId, parent, node, cleanKind === 'topic_shift' ? 'topic shift' : cleanKind);
+    }
+
+    const cleanQuestion = rtCleanOptionalString(question, 180);
+    if (cleanQuestion && !rtQuestionExists(ctx, roomId, cleanQuestion)) {
+      rtCreateQuestion(ctx, roomId, node.id, cleanQuestion, cleanUrgency);
+    }
+
+    const requestedTask = rtCleanOptionalString(task, 240);
+    const resolvedTask =
+      requestedTask && rtIsPublicResearchableTask(requestedTask, cleanTitle, cleanSummary)
+        ? requestedTask
+        : rtDefaultTaskForSignal(cleanKind, cleanTitle, cleanSummary);
+    if (resolvedTask && !rtTaskExists(ctx, roomId, resolvedTask)) {
+      rtCreateTask(ctx, roomId, node.id, resolvedTask, cleanUrgency === 'high' ? 2 : 1);
+    }
+  }
+);
+
+export const realtimePassiveQuestion = spacetimedb.reducer(
+  {
+    roomId: t.u64(),
+    connectedTo: t.option(t.string()),
+    question: t.string(),
+    urgency: t.string(),
+  },
+  (ctx, { roomId, connectedTo, question, urgency }) => {
+    requireRoom(ctx, roomId);
+
+    const cleanQuestion = rtCleanString(question, '', 180);
+    if (!cleanQuestion) return;
+
+    const nodes = rtListNodes(ctx, roomId);
+    const node = rtFindSimilarNode(nodes, rtCleanString(connectedTo, '', 72)) ?? nodes[0];
+    const cleanUrgency = rtCleanEnum(urgency, ['normal', 'high'], 'normal');
+
+    if (!rtQuestionExists(ctx, roomId, cleanQuestion)) {
+      rtCreateQuestion(ctx, roomId, node?.id, cleanQuestion, cleanUrgency);
+    }
+  }
+);
+
+export const realtimeQuickAgent = spacetimedb.reducer(
+  {
+    roomId: t.u64(),
+    connectedTo: t.option(t.string()),
+    task: t.string(),
+    urgency: t.string(),
+  },
+  (ctx, { roomId, connectedTo, task, urgency }) => {
+    requireRoom(ctx, roomId);
+
+    const cleanTask = rtCleanString(task, '', 240);
+    if (!cleanTask) return;
+
+    const nodes = rtListNodes(ctx, roomId);
+    const node = rtFindSimilarNode(nodes, rtCleanString(connectedTo, '', 72)) ?? nodes[0];
+    const cleanUrgency = rtCleanEnum(urgency, ['normal', 'high'], 'normal');
+
+    if (!rtTaskExists(ctx, roomId, cleanTask)) {
+      rtCreateTask(ctx, roomId, node?.id, cleanTask, cleanUrgency === 'high' ? 2 : 1);
+    }
+  }
+);
+
+export const realtimeCorrectNode = spacetimedb.reducer(
+  {
+    roomId: t.u64(),
+    target: t.string(),
+    title: t.option(t.string()),
+    summary: t.option(t.string()),
+    urgency: t.string(),
+  },
+  (ctx, { roomId, target, title, summary, urgency }) => {
+    requireRoom(ctx, roomId);
+
+    const cleanTarget = rtCleanString(target, '', 72);
+    const cleanTitle = rtCleanOptionalString(title, 72);
+    const cleanSummary = rtCleanOptionalString(summary, 220);
+    if (!cleanTarget || (!cleanTitle && !cleanSummary)) return;
+
+    const nodes = rtListNodes(ctx, roomId);
+    const node =
+      rtFindSimilarNode(nodes, cleanTarget) ??
+      (/\bcenter|root|main\b/i.test(cleanTarget) ? rtFindRootNode(nodes) : undefined);
+    if (!node) return;
+
+    const cleanUrgency = rtCleanEnum(urgency, ['normal', 'high'], node.urgency === 'high' ? 'high' : 'normal');
+    rtUpdateNode(ctx, node.id, {
+      title: cleanTitle ?? node.title,
+      summary: cleanSummary ?? node.summary,
+      nodeType: node.nodeType,
+      source: 'Realtime correction',
+      urgency: cleanUrgency,
+      x: 500,
+      y: 280,
+    });
+  }
+);
+

@@ -26,6 +26,7 @@ export interface SignalRoomActions {
   addTranscriptChunk: (text: string) => Promise<boolean>;
   redirectAgent: (text: string) => Promise<boolean>;
   updateMapNode: (nodeId: string, patch: { title?: string; summary?: string }) => Promise<boolean>;
+  runRealtimeOperatorTool: (name: string, rawArguments: string) => Promise<boolean>;
   moveMapNode: (nodeId: string, x: number, y: number) => Promise<boolean>;
   cleanMapLayout: (patches: LayoutPositionPatch[]) => Promise<boolean>;
   moveCursor: (x: number, y: number) => void;
@@ -410,6 +411,18 @@ export function useRoomState(): SignalRoomSnapshot {
     [live]
   );
 
+  const runRealtimeOperatorTool = useCallback(
+    async (name: string, rawArguments: string) => {
+      try {
+        return await live.runRealtimeOperatorTool(name, rawArguments);
+      } catch (error: unknown) {
+        console.error("Unable to run realtime operator tool", error);
+        return false;
+      }
+    },
+    [live]
+  );
+
   const actions = useMemo<SignalRoomActions>(
     () => ({
       setFocusNode,
@@ -420,6 +433,7 @@ export function useRoomState(): SignalRoomSnapshot {
       addTranscriptChunk,
       redirectAgent,
       updateMapNode,
+      runRealtimeOperatorTool,
       moveMapNode,
       cleanMapLayout,
       moveCursor,
@@ -433,6 +447,7 @@ export function useRoomState(): SignalRoomSnapshot {
       moveMapNode,
       moveCursor,
       redirectAgent,
+      runRealtimeOperatorTool,
       setDisplayName,
       setFocusNode,
       updateMapNode,

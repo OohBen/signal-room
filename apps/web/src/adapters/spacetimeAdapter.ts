@@ -83,6 +83,7 @@ export interface SpacetimeLiveBridge {
   addTranscriptChunk: (text: string, source?: string) => Promise<boolean>;
   createAgentTask: (instructions: string, nodeId?: string) => Promise<boolean>;
   updateMapNode: (nodeId: string, patch: { title?: string; summary?: string; x?: number; y?: number }) => Promise<boolean>;
+  runRealtimeOperatorTool: (name: string, rawArguments: string) => Promise<boolean>;
   setRoomFocus: (nodeId: string, label: string) => Promise<boolean>;
   clearRoomFocus: () => Promise<boolean>;
   upsertParticipant: (
@@ -802,6 +803,68 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
         y: patch.y,
       });
       return true;
+    },
+    runRealtimeOperatorTool: async (name: string, rawArguments: string) => {
+      // Execute a gpt-realtime-2 tool-call DIRECTLY over the live SpacetimeDB
+      // socket (no gateway, no CLI). The module reducers run the operator logic
+      // in-process and link node+edge atomically, so this is ~instant.
+      if (!conn || !connectionState.isActive || roomId === undefined) return false;
+      let args: Record<string, unknown> = {};
+      try {
+        const parsed = JSON.parse(rawArguments) as unknown;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          args = parsed as Record<string, unknown>;
+        }
+      } catch {
+        return false;
+      }
+      const str = (v: unknown): string => (typeof v === "string" ? v : "");
+      const optStr = (v: unknown): string | undefined =>
+        typeof v === "string" && v.trim() ? v : undefined;
+      const optNum = (v: unknown): number | undefined =>
+        typeof v === "number" && Number.isFinite(v) ? v : undefined;
+      const urgency = str(args.urgency) || "normal";
+      try {
+        if (name === "add_map_signal") {
+          await conn.reducers.realtimeMapSignal({
+            roomId,
+            kind: str(args.kind) || "topic",
+            title: str(args.title),
+            summary: str(args.summary),
+            connectedTo: optStr(args.connectedTo),
+            urgency,
+            question: optStr(args.question),
+            task: optStr(args.task),
+            confidence: optNum(args.confidence),
+          });
+        } else if (name === "add_passive_question") {
+          await conn.reducers.realtimePassiveQuestion({
+            roomId,
+            connectedTo: optStr(args.connectedTo),
+            question: str(args.question),
+            urgency,
+          });
+        } else if (name === "summon_quick_agent") {
+          await conn.reducers.realtimeQuickAgent({
+            roomId,
+            connectedTo: optStr(args.connectedTo),
+            task: str(args.task),
+            urgency,
+          });
+        } else if (name === "correct_map_node") {
+          await conn.reducers.realtimeCorrectNode({
+            roomId,
+            target: str(args.target),
+            title: optStr(args.title),
+            summary: optStr(args.summary),
+            urgency,
+          });
+        }
+        // ignore_turn / unknown → no-op
+        return true;
+      } catch {
+        return false;
+      }
     },
     setRoomFocus: async (nodeId: string, label: string) => {
       if (!conn || !connectionState.isActive || roomId === undefined) return false;

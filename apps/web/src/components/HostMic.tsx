@@ -257,36 +257,20 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     }
   }
 
-  // Execute a function_call from gpt-realtime-2 by relaying it to the gateway,
-  // which runs the proven handleRealtimeRoomTool against SpacetimeDB.
+  // Execute a function_call from gpt-realtime-2 by calling the SpacetimeDB module
+  // reducer DIRECTLY over the browser's live socket — no gateway, no CLI. The
+  // module runs the operator logic in-process and links node+edge atomically, so
+  // a map write is milliseconds instead of the old 3-6s CLI round-trips.
   async function executeRealtimeTool(name: string, rawArguments: string) {
-    const snapshot = stateRef.current;
-    try {
-      const response = await fetch(`${GATEWAY_URL}/realtime-tool`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          roomCode: snapshot.roomCode,
-          database: SPACETIME_DATABASE,
-          name,
-          arguments: rawArguments,
-        }),
-      });
-      const payload = (await response.json()) as {
-        ok?: boolean;
-        message?: string;
-        result?: { action?: string; skipped?: boolean; message?: string };
-      };
-      if (!response.ok || payload.ok === false) {
-        throw new Error(payload.message || `Gateway returned ${response.status}`);
-      }
-      const result = payload.result;
-      if (result && !result.skipped && result.action && result.action !== "ignore_turn") {
-        setVoiceStatus(result.message ? `Map updated · ${result.message}` : `Map updated · ${result.action}`);
+    if (name === "ignore_turn") return;
+    const ok = await actions.runRealtimeOperatorTool(name, rawArguments);
+    if (ok) {
+      setVoiceStatus("Map updated");
+      if (name === "add_map_signal" || name === "summon_quick_agent") {
         void runResearchWorker(true);
       }
-    } catch (error: unknown) {
-      onToast(error instanceof Error ? error.message : "Realtime tool call failed");
+    } else {
+      onToast("Realtime map update failed");
     }
   }
 
