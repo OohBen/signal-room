@@ -109,9 +109,11 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     }
     const synced = await actions.addTranscriptChunk(text);
     if (synced) {
-      maybeAskAgent(text);
-      queueRouteText(text);
       setChunk("");
+      // A direct "Hey agent, …" goes to the fast /ask lane only — do NOT route it to
+      // the map, so it never becomes a card. Other chunks build the map as usual.
+      if (maybeAskAgent(text)) return;
+      queueRouteText(text);
     } else {
       onToast("Shared room did not accept the transcript chunk");
     }
