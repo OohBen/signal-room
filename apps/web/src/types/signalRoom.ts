@@ -66,6 +66,8 @@ export interface PresencePin {
   color: string;
   viewing: string;
   isSelf: boolean;
+  status: string;
+  lastSeenAtMs: number;
 }
 
 export interface CursorPin {

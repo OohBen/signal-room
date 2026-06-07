@@ -1,5 +1,5 @@
 import { AlertTriangle, FileText, Monitor, Plus, Send, Table2, MessageSquare } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { SignalRoomSnapshot } from "../adapters/roomAdapter";
 import { Chip, OwnerLabel, PanelTitle } from "./Primitives";
 
@@ -16,6 +16,7 @@ const initialPrompt =
 export function ParticipantPrivateAi({ room, onClose, onOpenThread, onToast }: ParticipantPrivateAiProps) {
   const { state, actions, focusedNode } = room;
   const [prompt, setPrompt] = useState(initialPrompt);
+  const [nameDraft, setNameDraft] = useState(state.displayName);
   const mapCards = state.mapNodes.slice(0, 4).map((node) => ({
     id: node.id,
     title: node.title,
@@ -42,6 +43,16 @@ export function ParticipantPrivateAi({ room, onClose, onOpenThread, onToast }: P
   const summaryText = state.mapNodes.length
     ? `${state.mapNodes.length} shared ${state.mapNodes.length === 1 ? "topic is" : "topics are"} live. ${state.queueItems.length} passive ${state.queueItems.length === 1 ? "prompt" : "prompts"} or finding ${state.queueItems.length === 1 ? "is" : "are"} waiting on the room display.`
     : "This room is waiting for its first shared signal. Start the mic, replay a transcript, or add a quiet note to create the first branch.";
+
+  useEffect(() => {
+    setNameDraft(state.displayName);
+  }, [state.displayName]);
+
+  function saveDisplayName() {
+    if (!nameDraft.trim()) return;
+    actions.setDisplayName(nameDraft);
+    onToast("Name updated");
+  }
 
   function askPrivately() {
     if (!prompt.trim()) return;
@@ -75,6 +86,26 @@ export function ParticipantPrivateAi({ room, onClose, onOpenThread, onToast }: P
         </div>
 
         <div className="sheet-body">
+          <form
+            className="profile-name-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveDisplayName();
+            }}
+          >
+            <label htmlFor="display-name-input">Display name</label>
+            <input
+              id="display-name-input"
+              value={nameDraft}
+              onChange={(event) => setNameDraft(event.target.value)}
+              maxLength={32}
+              autoComplete="name"
+            />
+            <button className="ghost-btn" type="submit" disabled={!nameDraft.trim()}>
+              Save
+            </button>
+          </form>
+
           <div className="compose">
             <div className="panel-head inline-head">
               <PanelTitle>

@@ -1619,6 +1619,15 @@ button.feed-item:hover,
   color: var(--ink);
 }
 
+.btn:disabled,
+.primary-btn:disabled,
+.ghost-btn:disabled,
+.danger-btn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  filter: none;
+}
+
 .danger-btn {
   background: var(--red);
   color: #ffffff;
@@ -1851,6 +1860,41 @@ button.feed-item:hover,
   display: flex;
   flex-direction: column;
   gap: 9px;
+}
+
+.profile-name-form {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  padding: 10px;
+}
+
+.profile-name-form label {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 800;
+}
+
+.profile-name-form input {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-solid);
+  color: var(--ink);
+  padding: 0 10px;
+  font-size: 12.5px;
+  font-weight: 750;
+  outline: none;
+}
+
+.profile-name-form input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 textarea {

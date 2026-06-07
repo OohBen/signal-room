@@ -294,9 +294,31 @@ const spacetimedb = schema({
 
 export default spacetimedb;
 
+const ROOM_MIC_STARTING_STATUS = 'mic_starting';
+const ROOM_MIC_LIVE_STATUS = 'mic_live';
+const ROOM_MIC_TTL_MICROS = 30_000_000n;
+
 function cleanText(value: string, fallback: string): string {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : fallback;
+}
+
+function timestampMicros(value: any): bigint {
+  if (typeof value?.microsSinceUnixEpoch === 'bigint') {
+    return value.microsSinceUnixEpoch;
+  }
+  if (typeof value?.__timestamp_micros_since_unix_epoch__ === 'bigint') {
+    return value.__timestamp_micros_since_unix_epoch__;
+  }
+  return 0n;
+}
+
+function isRoomMicStatus(status: string): boolean {
+  return status === ROOM_MIC_STARTING_STATUS || status === ROOM_MIC_LIVE_STATUS;
+}
+
+function cleanRoomMicStatus(status: string): string {
+  return status === ROOM_MIC_LIVE_STATUS ? ROOM_MIC_LIVE_STATUS : ROOM_MIC_STARTING_STATUS;
 }
 
 function shortTitle(value: string, fallback: string): string {
@@ -380,6 +402,56 @@ function upsertParticipantForSender(
     joinedAt: ctx.timestamp,
     lastSeenAt: ctx.timestamp,
   });
+}
+
+function updateParticipantStatusForSender(
+  ctx: any,
+  roomId: bigint,
+  displayName: string,
+  status: string,
+  cursorNodeId: bigint | undefined
+): void {
+  const existing = first(
+    ctx.db.participant.by_room_identity.filter([roomId, ctx.sender])
+  );
+  const cleanDisplayName = cleanText(displayName, 'Participant');
+
+  if (existing !== undefined) {
+    ctx.db.participant.participantId.update({
+      ...existing,
+      displayName: cleanDisplayName,
+      status: cleanText(status, existing.status),
+      cursorNodeId,
+      lastSeenAt: ctx.timestamp,
+    });
+    return;
+  }
+
+  ctx.db.participant.insert({
+    participantId: 0n,
+    roomId,
+    identity: ctx.sender,
+    displayName: cleanDisplayName,
+    role: 'participant',
+    status: cleanText(status, 'online'),
+    cursorNodeId,
+    joinedAt: ctx.timestamp,
+    lastSeenAt: ctx.timestamp,
+  });
+}
+
+function activeRoomMicHolder(ctx: any, roomId: bigint): any | undefined {
+  const nowMicros = timestampMicros(ctx.timestamp);
+  for (const row of ctx.db.participant.roomId.filter(roomId)) {
+    if (!isRoomMicStatus(row.status)) continue;
+    if (row.identity.equals(ctx.sender)) continue;
+
+    const lastSeenMicros = timestampMicros(row.lastSeenAt);
+    if (lastSeenMicros === 0n || nowMicros - lastSeenMicros <= ROOM_MIC_TTL_MICROS) {
+      return row;
+    }
+  }
+  return undefined;
 }
 
 function participantDisplayName(ctx: any, roomId: bigint, fallback: string): string {
@@ -489,6 +561,44 @@ export const upsertParticipant = spacetimedb.reducer(
     upsertParticipantForSender(ctx, roomId, displayName, role, status, cursorNodeId);
     touchRoom(ctx, roomId);
     emitRoomEvent(ctx, roomId, 'participant_updated', `${displayName} updated`);
+  }
+);
+
+export const claimRoomMic = spacetimedb.reducer(
+  {
+    roomId: t.u64(),
+    displayName: t.string(),
+    status: t.string(),
+    cursorNodeId: t.option(t.u64()),
+  },
+  (ctx, { roomId, displayName, status, cursorNodeId }) => {
+    requireRoom(ctx, roomId);
+    const holder = activeRoomMicHolder(ctx, roomId);
+    if (holder !== undefined) {
+      throw new SenderError(`${cleanText(holder.displayName, 'Someone')} is already using the room mic`);
+    }
+
+    updateParticipantStatusForSender(
+      ctx,
+      roomId,
+      displayName,
+      cleanRoomMicStatus(status),
+      cursorNodeId
+    );
+    touchRoom(ctx, roomId);
+  }
+);
+
+export const releaseRoomMic = spacetimedb.reducer(
+  {
+    roomId: t.u64(),
+    displayName: t.string(),
+    cursorNodeId: t.option(t.u64()),
+  },
+  (ctx, { roomId, displayName, cursorNodeId }) => {
+    requireRoom(ctx, roomId);
+    updateParticipantStatusForSender(ctx, roomId, displayName, 'online', cursorNodeId);
+    touchRoom(ctx, roomId);
   }
 );
 

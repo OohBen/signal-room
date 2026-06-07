@@ -29,6 +29,8 @@ export interface SignalRoomActions {
   runRealtimeOperatorTool: (name: string, rawArguments: string) => Promise<boolean>;
   moveMapNode: (nodeId: string, x: number, y: number) => Promise<boolean>;
   cleanMapLayout: (patches: LayoutPositionPatch[]) => Promise<boolean>;
+  claimRoomMic: (status: "mic_starting" | "mic_live") => Promise<boolean>;
+  releaseRoomMic: () => Promise<boolean>;
   moveCursor: (x: number, y: number) => void;
 }
 
@@ -404,6 +406,27 @@ export function useRoomState(): SignalRoomSnapshot {
     [live]
   );
 
+  const claimRoomMic = useCallback(
+    async (status: "mic_starting" | "mic_live") => {
+      try {
+        return await live.claimRoomMic(status, focusNodeId);
+      } catch (error: unknown) {
+        console.error("Unable to claim room mic", error);
+        return false;
+      }
+    },
+    [focusNodeId, live]
+  );
+
+  const releaseRoomMic = useCallback(async () => {
+    try {
+      return await live.releaseRoomMic(focusNodeId);
+    } catch (error: unknown) {
+      console.error("Unable to release room mic", error);
+      return false;
+    }
+  }, [focusNodeId, live]);
+
   const moveCursor = useCallback(
     (x: number, y: number) => {
       live.moveCursor(x, y);
@@ -436,17 +459,21 @@ export function useRoomState(): SignalRoomSnapshot {
       runRealtimeOperatorTool,
       moveMapNode,
       cleanMapLayout,
+      claimRoomMic,
+      releaseRoomMic,
       moveCursor,
     }),
     [
       addPrivatePrompt,
       addSharedNote,
       addTranscriptChunk,
+      claimRoomMic,
       cleanMapLayout,
       clearFocusNode,
       moveMapNode,
       moveCursor,
       redirectAgent,
+      releaseRoomMic,
       runRealtimeOperatorTool,
       setDisplayName,
       setFocusNode,

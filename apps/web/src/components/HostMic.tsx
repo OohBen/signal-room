@@ -18,6 +18,9 @@ interface HostMicProps {
 const defaultChunk =
   "Question: will the Strait of Hormuz reopen within 72 hours? Michelle says China and India public pressure on Iran could matter. Ben asks: agent, look up recent China and India statements on Iran and whether oil markets are pricing a ceasefire.";
 
+const MIC_STATUS_TTL_MS = 30_000;
+const MIC_HEARTBEAT_MS = 8_000;
+
 export function HostMic({ room, isActive, onToast }: HostMicProps) {
   const { state, adapterStatus, actions } = room;
   const [chunk, setChunk] = useState(defaultChunk);
@@ -30,6 +33,7 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   const [voiceStarting, setVoiceStarting] = useState(false);
   const [zoomJoinUrl, setZoomJoinUrl] = useState("");
   const [zoomJoining, setZoomJoining] = useState(false);
+  const [micClock, setMicClock] = useState(() => Date.now());
   const realtimeSessionRef = useRef<RealtimeTranscriptionSession | null>(null);
   const pendingRouteTranscriptRef = useRef("");
   const liveRoutingRef = useRef(true);
@@ -50,6 +54,14 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const sharedRoomReady = adapterStatus.mode === "spacetime" && Boolean(adapterStatus.roomId);
+  const remoteMicHolder = state.presence.find(
+    (person) =>
+      !person.isSelf &&
+      (person.status === "mic_live" || person.status === "mic_starting") &&
+      micClock - person.lastSeenAtMs <= MIC_STATUS_TTL_MS
+  );
+  const micLockedByOther = Boolean(remoteMicHolder);
+  const micUnavailableLabel = remoteMicHolder ? `${remoteMicHolder.label} is using the room mic` : undefined;
 
   // Direct "Hey agent, <question>" → fast /ask lane: answered straight into Live signals,
   // no map node, no queued task. Returns true if it fired.
@@ -83,6 +95,22 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setMicClock(Date.now()), 5_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!sharedRoomReady || (!voiceStarting && !listening)) return;
+
+    const status = listening ? "mic_live" : "mic_starting";
+    void actions.claimRoomMic(status);
+    const interval = window.setInterval(() => {
+      void actions.claimRoomMic(status);
+    }, MIC_HEARTBEAT_MS);
+    return () => window.clearInterval(interval);
+  }, [actions, listening, sharedRoomReady, voiceStarting]);
 
   async function submitManualChunk() {
     const text = chunk.trim();
@@ -149,6 +177,15 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     if (voiceStarting || listening) return;
     if (!sharedRoomReady) {
       onToast("Shared room still connecting");
+      return;
+    }
+    if (remoteMicHolder) {
+      onToast(`${remoteMicHolder.label} is already using the room mic`);
+      return;
+    }
+    const claimed = await actions.claimRoomMic("mic_starting");
+    if (!claimed) {
+      onToast("Room mic is already in use");
       return;
     }
     captureShouldRunRef.current = true;
@@ -365,6 +402,7 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     setInterim("");
     setVoiceStatus("Mic idle");
     stopRequestedRef.current = false;
+    void actions.releaseRoomMic();
   }
 
   function clearReconnectTimer() {
@@ -521,10 +559,11 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
             className={listening ? "danger-btn" : "primary-btn"}
             type="button"
             onClick={listening ? stopListening : () => void startListening()}
-            disabled={voiceStarting || (!listening && !sharedRoomReady)}
+            disabled={voiceStarting || (!listening && (!sharedRoomReady || micLockedByOther))}
+            title={!listening && micUnavailableLabel ? micUnavailableLabel : undefined}
           >
             {listening ? <MicOff size={16} strokeWidth={2.1} /> : <Mic size={16} strokeWidth={2.1} />}
-            {listening ? "Stop" : voiceStarting ? "Starting" : "Start mic"}
+            {listening ? "Stop" : micLockedByOther ? "Mic in use" : voiceStarting ? "Starting" : "Start mic"}
           </button>
         </div>
         <form
@@ -594,10 +633,11 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
                 className={listening ? "danger-btn" : "primary-btn"}
                 type="button"
                 onClick={listening ? stopListening : () => void startListening()}
-                disabled={voiceStarting || (!listening && !sharedRoomReady)}
+                disabled={voiceStarting || (!listening && (!sharedRoomReady || micLockedByOther))}
+                title={!listening && micUnavailableLabel ? micUnavailableLabel : undefined}
               >
                 {listening ? <MicOff size={17} strokeWidth={2.1} /> : <Mic size={17} strokeWidth={2.1} />}
-                {listening ? "Stop mic" : voiceStarting ? "Starting mic" : "Start mic"}
+                {listening ? "Stop mic" : micLockedByOther ? "Mic in use" : voiceStarting ? "Starting mic" : "Start mic"}
               </button>
             </div>
           </div>

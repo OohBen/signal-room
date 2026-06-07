@@ -86,6 +86,8 @@ export interface SpacetimeLiveBridge {
   runRealtimeOperatorTool: (name: string, rawArguments: string) => Promise<boolean>;
   setRoomFocus: (nodeId: string, label: string) => Promise<boolean>;
   clearRoomFocus: () => Promise<boolean>;
+  claimRoomMic: (status: "mic_starting" | "mic_live", cursorNodeId?: string) => Promise<boolean>;
+  releaseRoomMic: (cursorNodeId?: string) => Promise<boolean>;
   upsertParticipant: (
     displayName: string,
     status: string,
@@ -361,6 +363,39 @@ function isTakeawaysFinding(row: DbFinding): boolean {
   return row.title.trim().toLowerCase() === "meeting takeaways";
 }
 
+function uniqueQuestionRows(rows: DbQuestionCandidate[]): DbQuestionCandidate[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = questionDedupeKey(row.question);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function questionDedupeKey(question: string): string {
+  const stopWords = new Set([
+    "and",
+    "are",
+    "choice",
+    "choosing",
+    "decision",
+    "discussion",
+    "does",
+    "for",
+    "question",
+    "the",
+    "topic",
+  ]);
+  return question
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 2 && !stopWords.has(token))
+    .sort()
+    .join(" ");
+}
+
 function signalRank(kind: RoomSignal["kind"]): number {
   if (kind === "answer") return 0;
   if (kind === "important") return 1;
@@ -436,14 +471,24 @@ function mapRoomEvent(row: DbRoomEvent): RoomEvent {
 function mapPresence(row: DbParticipant, selfHex: string, nodeById: Map<string, DbMapNode>): PresencePin {
   const idHex = row.identity.toHexString();
   const displayName = safeDisplayName(row.displayName, idHex);
-  const viewing = connectedNodeName(row.cursorNodeId, nodeById);
+  const connected = connectedNodeName(row.cursorNodeId, nodeById);
+  const viewing =
+    row.status === "mic_live"
+      ? "capturing mic"
+      : row.status === "mic_starting"
+        ? "starting mic"
+        : connected === "Room"
+          ? "in room"
+          : `viewing ${connected}`;
   return {
     id: `db-participant-${rowId(row.participantId)}`,
     label: displayName,
     initial: initialFromName(displayName),
     color: colorForKey(idHex),
-    viewing: viewing === "Room" ? "in room" : `viewing ${viewing}`,
+    viewing,
     isSelf: idHex === selfHex,
+    status: row.status,
+    lastSeenAtMs: timestampMillis(row.lastSeenAt),
   };
 }
 
@@ -739,8 +784,9 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
       ...sortNewest(roomRows.findings, (row) => row.createdAt)
         .slice(0, 4)
         .map((finding) => mapFinding(finding, nodeById)),
-      ...sortNewest(roomRows.questions, (row) => row.createdAt)
-        .filter((question) => question.status === "open")
+      ...uniqueQuestionRows(
+        sortNewest(roomRows.questions, (row) => row.createdAt).filter((question) => question.status === "open")
+      )
         .slice(0, 4)
         .map((question) => mapQuestion(question, nodeById)),
       ...sortNewest(roomRows.tasks, (row) => row.createdAt)
@@ -881,6 +927,25 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
         roomId,
         nodeId: undefined,
         label: "Room synthesis",
+      });
+      return true;
+    },
+    claimRoomMic: async (statusText: "mic_starting" | "mic_live", cursorNodeId?: string) => {
+      if (!conn || !connectionState.isActive || roomId === undefined) return false;
+      await conn.reducers.claimRoomMic({
+        roomId,
+        displayName,
+        status: statusText,
+        cursorNodeId: nodeIdFromUi(cursorNodeId),
+      });
+      return true;
+    },
+    releaseRoomMic: async (cursorNodeId?: string) => {
+      if (!conn || !connectionState.isActive || roomId === undefined) return false;
+      await conn.reducers.releaseRoomMic({
+        roomId,
+        displayName,
+        cursorNodeId: nodeIdFromUi(cursorNodeId),
       });
       return true;
     },

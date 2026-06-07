@@ -67,10 +67,10 @@ interface NodeDragState {
 
 type DraftNodePositions = Record<string, { x: number; y: number }>;
 
-const STAGE_W = 3600;
-const STAGE_H = 2400;
-const CX = STAGE_W / 2;
-const CY = STAGE_H / 2;
+const STAGE_W = 18000;
+const STAGE_H = 12000;
+const CX = 1800;
+const CY = 1200;
 const MIN_ZOOM = 0.38;
 const MAX_ZOOM = 2.4;
 const SNAP_GRID = 24;
@@ -104,6 +104,8 @@ export function RoomMap({
   const [draftNodePositions, setDraftNodePositions] = useState<DraftNodePositions>({});
   const mapLayout = layoutMapNodes(nodes, edges, draftNodePositions);
   const layout = mapLayout.nodes;
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
   const hasSelection = layout.some((positioned) => positioned.node.id === focusedNodeId);
   const positionById = new Map(layout.map((positioned) => [positioned.node.id, positioned]));
   const drawnEdges = edges
@@ -121,11 +123,16 @@ export function RoomMap({
 
     const rect = viewport.getBoundingClientRect();
     const availableWidth = Math.max(rect.width - insetLeft - insetRight, 220);
-    const nextZoom = Math.min(1, Math.max(MIN_ZOOM, availableWidth / 1380, (rect.height - 80) / 1000));
+    const availableHeight = Math.max(rect.height - 120, 220);
+    const target = viewportTargetBounds(layoutRef.current);
+    const targetWidth = Math.max(1, target.right - target.left);
+    const targetHeight = Math.max(1, target.bottom - target.top);
+    const fitZoom = Math.min(availableWidth / (targetWidth + 420), availableHeight / (targetHeight + 280));
+    const nextZoom = Math.min(1, Math.max(MIN_ZOOM, fitZoom));
     setZoom(nextZoom);
     requestAnimationFrame(() => {
-      viewport.scrollLeft = Math.max(0, CX * nextZoom - availableWidth / 2 - 20);
-      viewport.scrollTop = Math.max(0, CY * nextZoom - rect.height / 2 - 30);
+      viewport.scrollLeft = Math.max(0, target.centerX * nextZoom - (insetLeft + availableWidth / 2));
+      viewport.scrollTop = Math.max(0, target.centerY * nextZoom - (28 + availableHeight / 2));
     });
   }, [insetLeft, insetRight]);
 
@@ -538,7 +545,7 @@ function createCleanLayoutPatches(nodes: MapNode[], edges: MapEdge[], currentLay
 
   const root = nodes.find((node) => node.isRoot) ?? nodes[0];
   const currentById = new Map(currentLayout.map((positioned) => [positioned.node.id, positioned]));
-  const proposedLayout = layoutAutomaticNodes(nodes, edges, root, currentById);
+  const proposedLayout = layoutAutomaticNodes(nodes, edges, root);
   const currentBounds = layoutBounds(currentLayout);
   const proposedBounds = layoutBounds(proposedLayout);
   if (!currentBounds || !proposedBounds) return [];
@@ -879,6 +886,19 @@ function layoutBounds(layout: PositionedNode[]):
     top,
     bottom,
   };
+}
+
+function viewportTargetBounds(layout: PositionedNode[]): NonNullable<ReturnType<typeof layoutBounds>> {
+  return (
+    layoutBounds(layout) ?? {
+      centerX: CX,
+      centerY: CY,
+      left: CX - 690,
+      right: CX + 690,
+      top: CY - 500,
+      bottom: CY + 500,
+    }
+  );
 }
 
 function separateOverlappingNodes(layout: PositionedNode[], lockedNodeId: string): PositionedNode[] {
