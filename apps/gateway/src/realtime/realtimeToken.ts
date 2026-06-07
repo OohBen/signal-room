@@ -2,7 +2,10 @@ import { getSecret } from "../config/env.js";
 import { ACTION_REALTIME_ROOM_TOOLS, buildOperatorInstructions } from "./operatorConfig.js";
 
 const DEFAULT_REALTIME_MODEL = "gpt-realtime-2";
-const DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe-2025-12-15";
+// gpt-realtime-whisper is OpenAI's natively-streaming transcription model built
+// for realtime sessions (lowest latency). Swap via SIGNAL_ROOM_TRANSCRIPTION_MODEL,
+// and tune latency vs accuracy via SIGNAL_ROOM_TRANSCRIBE_DELAY (minimal|low|medium|high|xhigh).
+const DEFAULT_TRANSCRIPTION_MODEL = "gpt-realtime-whisper";
 
 export interface RealtimeTokenResult {
   value: string;
@@ -22,6 +25,14 @@ export async function mintRealtimeToken(): Promise<RealtimeTokenResult> {
   const model = getSecret("SIGNAL_ROOM_REALTIME_MODEL") ?? DEFAULT_REALTIME_MODEL;
   const transcriptionModel = getSecret("SIGNAL_ROOM_TRANSCRIPTION_MODEL") ?? DEFAULT_TRANSCRIPTION_MODEL;
 
+  // gpt-realtime-whisper exposes a `delay` knob; only send it when configured so
+  // other transcription models aren't handed an unsupported field.
+  const transcribeDelay = getSecret("SIGNAL_ROOM_TRANSCRIBE_DELAY");
+  const transcription: Record<string, unknown> = { model: transcriptionModel, language: "en" };
+  if (transcribeDelay) {
+    transcription.delay = transcribeDelay;
+  }
+
   const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
     method: "POST",
     headers: {
@@ -37,7 +48,7 @@ export async function mintRealtimeToken(): Promise<RealtimeTokenResult> {
           "You are Signal Room's silent live transcriber. Do not speak or respond; only transcribe the room audio.",
         audio: {
           input: {
-            transcription: { model: transcriptionModel, language: "en" },
+            transcription,
             noise_reduction: { type: "far_field" },
             turn_detection: {
               type: "server_vad",
