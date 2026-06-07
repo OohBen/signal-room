@@ -374,6 +374,10 @@ function uniqueQuestionRows(rows: DbQuestionCandidate[]): DbQuestionCandidate[] 
 }
 
 function questionDedupeKey(question: string): string {
+  const lower = question.toLowerCase();
+  if (/\breview\b/.test(lower) && /\bcriteria\b/.test(lower)) return "review-criteria";
+  if (/\bmicrowave\b/.test(lower) && /\bhackathon\b/.test(lower)) return "microwave-or-hackathon";
+
   const stopWords = new Set([
     "and",
     "are",
@@ -383,12 +387,17 @@ function questionDedupeKey(question: string): string {
     "discussion",
     "does",
     "for",
+    "outcome",
     "question",
+    "scope",
+    "success",
     "the",
     "topic",
+    "upcoming",
+    "what",
+    "will",
   ]);
-  return question
-    .toLowerCase()
+  return lower
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
     .filter((token) => token.length > 2 && !stopWords.has(token))

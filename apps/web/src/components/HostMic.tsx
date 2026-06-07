@@ -241,6 +241,11 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     // Persist to the shared transcript log first so everyone sees the turn.
     await actions.addTranscriptChunk(clean).catch(() => undefined);
 
+    if (isLikelyIncompleteTurn(clean)) {
+      setVoiceStatus("Waiting for full thought…");
+      return;
+    }
+
     // Direct "Hey agent, …" → fast lane only (no map card).
     if (maybeAskAgent(clean)) return;
     // Otherwise let gpt-realtime-2 update the map directly from this turn.
@@ -717,6 +722,7 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
 function hasMapworthySignal(transcript: string): boolean {
   const compact = transcript.trim().replace(/\s+/g, " ");
   if (!compact) return false;
+  if (isLikelyIncompleteTurn(compact)) return false;
   const words = compact.split(/\s+/).filter(Boolean);
   const lower = compact.toLowerCase();
 
@@ -728,4 +734,14 @@ function hasMapworthySignal(transcript: string): boolean {
   }
 
   return false;
+}
+
+function isLikelyIncompleteTurn(text: string): boolean {
+  const compact = text.trim().replace(/\s+/g, " ");
+  if (!compact) return true;
+  const lower = compact.toLowerCase();
+  const words = compact.split(/\s+/).filter(Boolean);
+  if (words.length <= 2) return true;
+  if (/[.…]{2,}$/.test(compact)) return true;
+  return /\b(?:and|or|um|uh|so|sort of|kind of|like)\s*[.?!…]*$/i.test(lower);
 }
