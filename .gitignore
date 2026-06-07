@@ -8,3 +8,6 @@ dist/
 
 # Codex design iteration screenshots
 .codex-*.png
+
+# Claude Code local state
+.claude/
