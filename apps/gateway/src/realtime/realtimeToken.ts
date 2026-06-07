@@ -1,19 +1,18 @@
 import { getSecret } from "../config/env.js";
-import { ACTION_REALTIME_ROOM_TOOLS, buildOperatorInstructions } from "./operatorConfig.js";
 
-const DEFAULT_REALTIME_MODEL = "gpt-realtime-2";
-// gpt-4o-mini-transcribe is cheap enough (~$0.003/min) and accurate. For the lower-latency
-// streaming path, set SIGNAL_ROOM_TRANSCRIPTION_MODEL=gpt-realtime-whisper (OpenAI's natively-
-// streaming realtime transcriber) and optionally SIGNAL_ROOM_TRANSCRIBE_DELAY (minimal|low|medium|high|xhigh).
-const DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe-2025-12-15";
+// Dedicated OpenAI realtime *transcription* session (session.type = "transcription").
+// It needs NO conversational model — there is no top-level `model` (gpt-realtime-2 is gone).
+// gpt-realtime-whisper is OpenAI's natively-streaming, lowest-latency realtime transcriber
+// and segments internally (it rejects turn_detection). Override the model via
+// SIGNAL_ROOM_TRANSCRIPTION_MODEL; tune latency with SIGNAL_ROOM_TRANSCRIBE_DELAY
+// (minimal|low|medium|high|xhigh). The browser connects this token over WebRTC.
+const DEFAULT_TRANSCRIPTION_MODEL = "gpt-realtime-whisper";
 
 export interface RealtimeTokenResult {
   value: string;
   model: string;
   transcriptionModel: string;
   expiresAt?: number;
-  tools: unknown[];
-  operatorInstructions: string;
 }
 
 export async function mintRealtimeToken(): Promise<RealtimeTokenResult> {
@@ -22,15 +21,28 @@ export async function mintRealtimeToken(): Promise<RealtimeTokenResult> {
     throw new Error("OPENAI_API_KEY is required for realtime tokens");
   }
 
-  const model = getSecret("SIGNAL_ROOM_REALTIME_MODEL") ?? DEFAULT_REALTIME_MODEL;
   const transcriptionModel = getSecret("SIGNAL_ROOM_TRANSCRIPTION_MODEL") ?? DEFAULT_TRANSCRIPTION_MODEL;
-
-  // gpt-realtime-whisper exposes a `delay` knob; only send it when configured so
-  // other transcription models aren't handed an unsupported field.
   const transcribeDelay = getSecret("SIGNAL_ROOM_TRANSCRIBE_DELAY");
+
   const transcription: Record<string, unknown> = { model: transcriptionModel, language: "en" };
   if (transcribeDelay) {
     transcription.delay = transcribeDelay;
+  }
+
+  const input: Record<string, unknown> = {
+    transcription,
+    noise_reduction: { type: "far_field" },
+  };
+  // gpt-realtime-whisper segments internally and rejects turn_detection; other
+  // transcription models (e.g. gpt-4o-mini-transcribe) need server VAD to emit
+  // completed events, so add it only for non-whisper models.
+  if (!transcriptionModel.includes("whisper")) {
+    input.turn_detection = {
+      type: "server_vad",
+      threshold: 0.5,
+      prefix_padding_ms: 200,
+      silence_duration_ms: 380,
+    };
   }
 
   const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
@@ -41,25 +53,8 @@ export async function mintRealtimeToken(): Promise<RealtimeTokenResult> {
     },
     body: JSON.stringify({
       session: {
-        type: "realtime",
-        model,
-        output_modalities: ["text"],
-        instructions:
-          "You are Signal Room's silent live transcriber. Do not speak or respond; only transcribe the room audio.",
-        audio: {
-          input: {
-            transcription,
-            noise_reduction: { type: "far_field" },
-            turn_detection: {
-              type: "server_vad",
-              create_response: false,
-              interrupt_response: false,
-              threshold: 0.5,
-              prefix_padding_ms: 200,
-              silence_duration_ms: 380,
-            },
-          },
-        },
+        type: "transcription",
+        audio: { input },
       },
     }),
   });
@@ -91,12 +86,5 @@ export async function mintRealtimeToken(): Promise<RealtimeTokenResult> {
 
   const expiresAt = typeof data?.expires_at === "number" ? data.expires_at : undefined;
 
-  return {
-    value,
-    model,
-    transcriptionModel,
-    expiresAt,
-    tools: ACTION_REALTIME_ROOM_TOOLS,
-    operatorInstructions: buildOperatorInstructions(),
-  };
+  return { value, model: transcriptionModel, transcriptionModel, expiresAt };
 }
