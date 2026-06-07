@@ -62,6 +62,7 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   );
   const micLockedByOther = Boolean(remoteMicHolder);
   const micUnavailableLabel = remoteMicHolder ? `${remoteMicHolder.label} is using the room mic` : undefined;
+  const queuedResearchTaskCount = state.queueItems.filter((item) => /^Agent task/i.test(item.title)).length;
 
   // Direct "Hey agent, <question>" → fast /ask lane: answered straight into Live signals,
   // no map node, no queued task. Returns true if it fired.
@@ -111,6 +112,17 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     }, MIC_HEARTBEAT_MS);
     return () => window.clearInterval(interval);
   }, [actions, listening, sharedRoomReady, voiceStarting]);
+
+  useEffect(() => {
+    if (!sharedRoomReady || queuedResearchTaskCount === 0) return;
+
+    void runResearchWorker(true);
+    const interval = window.setInterval(() => {
+      void runResearchWorker(true);
+    }, 7000);
+    return () => window.clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queuedResearchTaskCount, sharedRoomReady, state.roomCode]);
 
   async function submitManualChunk() {
     const text = chunk.trim();
@@ -552,15 +564,6 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
             {routing ? "Routing" : liveRouting ? "Routing live" : "Route"}
           </button>
           <button
-            className="ghost-btn"
-            type="button"
-            onClick={() => void runResearchWorker()}
-            disabled={!sharedRoomReady || researching}
-          >
-            <Bot size={16} strokeWidth={2.1} />
-            {researching ? "Working" : "Work task"}
-          </button>
-          <button
             className={listening ? "danger-btn" : "primary-btn"}
             type="button"
             onClick={listening ? stopListening : () => void startListening()}
@@ -624,15 +627,6 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
               >
                 <Bot size={17} strokeWidth={2.1} />
                 {routing ? "Routing" : liveRouting ? "Routing live" : "Route live mic"}
-              </button>
-              <button
-                className="ghost-btn"
-                type="button"
-                onClick={() => void runResearchWorker()}
-                disabled={!sharedRoomReady || researching}
-              >
-                <Bot size={17} strokeWidth={2.1} />
-                {researching ? "Researching" : "Work one task"}
               </button>
               <button
                 className={listening ? "danger-btn" : "primary-btn"}
