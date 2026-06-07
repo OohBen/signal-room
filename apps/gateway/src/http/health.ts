@@ -29,6 +29,7 @@ export interface HealthServerOptions {
   replayTranscript?: (request: ReplayTranscriptRequest) => Promise<unknown>;
   workRoom?: (request: WorkRoomRequest) => Promise<unknown>;
   fleet?: (request: FleetRequest) => Promise<unknown>;
+  ask?: (request: AskRequest) => Promise<unknown>;
 }
 
 export interface ReplayTranscriptRequest {
@@ -48,6 +49,12 @@ export interface WorkRoomRequest {
 
 export interface FleetRequest {
   roomCode: string;
+  database?: string;
+}
+
+export interface AskRequest {
+  roomCode: string;
+  question: string;
   database?: string;
 }
 
@@ -203,6 +210,29 @@ async function handleRequest(
     return;
   }
 
+  if (request.method === "POST" && path === "/ask") {
+    if (!options.ask) {
+      writeJson(response, 503, {
+        ok: false,
+        error: "ask_unavailable",
+      });
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(request);
+      const result = await options.ask(parseAskRequest(body));
+      writeJson(response, 200, { ok: true, result });
+    } catch (error: unknown) {
+      writeJson(response, 400, {
+        ok: false,
+        error: "bad_request",
+        message: error instanceof Error ? error.message : "Invalid ask request",
+      });
+    }
+    return;
+  }
+
   writeJson(response, 404, {
     ok: false,
     error: "not_found",
@@ -285,6 +315,23 @@ function parseFleetRequest(body: unknown): FleetRequest {
 
   return {
     roomCode,
+    database,
+  };
+}
+
+function parseAskRequest(body: unknown): AskRequest {
+  if (!body || typeof body !== "object") {
+    throw new Error("Body must be a JSON object");
+  }
+
+  const record = body as Record<string, unknown>;
+  const roomCode = parseString(record.roomCode, "roomCode");
+  const question = parseString(record.question, "question");
+  const database = parseOptionalString(record.database, "database");
+
+  return {
+    roomCode,
+    question,
     database,
   };
 }

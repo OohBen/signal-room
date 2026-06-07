@@ -13,6 +13,7 @@ import { workOneQueuedTask, workQueuedTasks } from "./tasks/taskWorker.js";
 import { runRoomSwarm } from "./tasks/swarm.js";
 import { runRoomFleet } from "./tasks/fleet.js";
 import { ResearchTaskRunner } from "./tasks/researchTaskRunner.js";
+import { answerQuickQuestion } from "./tasks/askAgent.js";
 
 type Command =
   | "serve"
@@ -23,6 +24,7 @@ type Command =
   | "work-once"
   | "work-batch"
   | "fleet"
+  | "ask"
   | "help";
 
 interface CliOptions {
@@ -85,6 +87,15 @@ async function main(): Promise<void> {
           runner,
         });
       },
+      ask: async (request) => {
+        const runner = new ResearchTaskRunner(createExaResearchClient());
+        return answerQuickQuestion({
+          database: request.database ?? options.database,
+          roomCode: request.roomCode,
+          question: request.question,
+          runner,
+        });
+      },
     });
     return;
   }
@@ -142,6 +153,24 @@ async function main(): Promise<void> {
       runner,
     });
     console.log(JSON.stringify({ ok: true, fleet: output }, null, 2));
+    return;
+  }
+
+  if (options.command === "ask") {
+    if (!options.roomCode) {
+      throw new Error("ask requires --room-code <code>");
+    }
+    if (!options.query) {
+      throw new Error("ask requires --query <question>");
+    }
+    const runner = new ResearchTaskRunner(createExaResearchClient());
+    const output = await answerQuickQuestion({
+      database: options.database,
+      roomCode: options.roomCode,
+      question: options.query,
+      runner,
+    });
+    console.log(JSON.stringify({ ok: true, ask: output }, null, 2));
     return;
   }
 
@@ -305,6 +334,7 @@ function normalizeCommand(command: string | undefined): Command {
     command === "work-once" ||
     command === "work-batch" ||
     command === "fleet" ||
+    command === "ask" ||
     command === "help"
   ) {
     return command;
@@ -387,6 +417,7 @@ Commands:
   work-once          Claim one queued SpacetimeDB agent task, run research, and write back.
   work-batch         Claim up to --max-tasks queued tasks, filtered by --room-code when provided.
   fleet              Run the hierarchical agent fleet over a room's mind map: leaf research, branch and root synthesis.
+  ask                Answer a quick "Hey agent" question directly and post it as a finding. Requires --room-code and --query.
 
 Options:
   --query <query>    Research query for smoke/research.

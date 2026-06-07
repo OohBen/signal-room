@@ -316,6 +316,19 @@ function truncateLabel(label: string, maxLength: number): string {
 
 function mapSignal(row: DbFinding, nodeById: Map<string, DbMapNode>): RoomSignal {
   const node = row.nodeId === undefined ? undefined : nodeById.get(rowId(row.nodeId));
+  // A node-less "Hey agent:" finding is a direct quick-question answer (fast /ask lane).
+  const directAsk = /^hey agent:/i.test(row.title.trim());
+  if (directAsk) {
+    return {
+      id: `db-signal-${rowId(row.findingId)}`,
+      kind: "answer",
+      title: row.title.replace(/^hey agent:\s*/i, "").trim() || "Your question",
+      body: row.summary,
+      sources: parseSourceChips(row.linksJson),
+      connectedNodeId: undefined,
+      connectedNodeTitle: "You asked",
+    };
+  }
   const isAnswer = node?.nodeType === "human_question" || node?.nodeType === "question";
   const connectedNodeTitle = connectedNodeName(row.nodeId, nodeById);
   if (isLikelyRoomPrivateFinding(row.title, row.summary, connectedNodeTitle)) {

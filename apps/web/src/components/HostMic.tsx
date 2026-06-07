@@ -65,7 +65,30 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   const reconnectAttemptsRef = useRef(0);
   const captureShouldRunRef = useRef(false);
   const stopRequestedRef = useRef(false);
+  const lastAskRef = useRef<{ question: string; at: number }>({ question: "", at: 0 });
   const sharedRoomReady = adapterStatus.mode === "spacetime" && Boolean(adapterStatus.roomId);
+
+  // Direct "Hey agent, <question>" → fast /ask lane: answered straight into Live signals,
+  // no map node, no queued task. Returns true if it fired.
+  function maybeAskAgent(text: string): boolean {
+    const match =
+      text.match(/\bhey\s+agent\b[\s,:]*(.+)/i) ?? text.match(/\bagent\s*[,:]\s*(.+)/i);
+    if (!match) return false;
+    const question = match[1].trim().replace(/[?.!]+$/, "").trim();
+    if (question.length < 4) return false;
+    const now = Date.now();
+    if (lastAskRef.current.question === question && now - lastAskRef.current.at < 12000) return true;
+    lastAskRef.current = { question, at: now };
+    onToast("🔎 Hey agent — looking it up, answer lands in Live signals…");
+    void fetch(`${GATEWAY_URL}/ask`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ roomCode: state.roomCode, question, database: SPACETIME_DATABASE }),
+    }).catch(() => {
+      onToast("Could not reach the agent for that question");
+    });
+    return true;
+  }
 
   useEffect(() => {
     liveRoutingRef.current = liveRouting;
@@ -86,6 +109,7 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     }
     const synced = await actions.addTranscriptChunk(text);
     if (synced) {
+      maybeAskAgent(text);
       queueRouteText(text);
       setChunk("");
     } else {
@@ -503,10 +527,8 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
       return;
     }
 
-    // Instant, loud feedback the moment someone asks the agent directly.
-    if (/\bhey\s+agent\b|\bagent\s*[,:]/i.test(newText)) {
-      onToast("🔎 Hey agent — looking it up, answer lands in Live signals…");
-    }
+    // Direct questions go to the fast /ask lane (answered in Live signals, no card).
+    maybeAskAgent(newText);
 
     routingRef.current = true;
     setRouting(true);
