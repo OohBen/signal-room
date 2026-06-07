@@ -117,6 +117,8 @@ SDKError Zoom::join() {
     auto userName = displayName.c_str();
     auto psw = password.c_str();
 
+    Log::info("joining Zoom meeting " + mid + " as " + displayName + " (password supplied)");
+
     JoinParam joinParam;
     joinParam.userType = ZOOM_SDK_NAMESPACE::SDK_UT_WITHOUT_LOGIN;
 

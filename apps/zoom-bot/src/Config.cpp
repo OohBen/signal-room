@@ -49,7 +49,17 @@ int Config::read(int ac, char **av) {
    return 0;
 }
 
-// Your updated Config::parseUrl function
+static string onlyDigits(const string& value) {
+    string result;
+    result.reserve(value.size());
+    for (char ch : value) {
+        if (isdigit(static_cast<unsigned char>(ch))) {
+            result += ch;
+        }
+    }
+    return result;
+}
+
 bool Config::parseUrl(const string& join_url) {
     auto url = UrlParser::parse(join_url);
     
@@ -64,24 +74,27 @@ bool Config::parseUrl(const string& join_url) {
     while (getline(ss, token, '/')) {
         if (token.empty()) continue;
         
-        m_isMeetingStart = token == "s";
-        
-        if (lastRoute == "j" || lastRoute == "s") {
-            m_meetingId = token;
+        if ((lastRoute == "j" || lastRoute == "s" || lastRoute == "join") && token != "join") {
+            m_meetingId = onlyDigits(token);
             break;
         }
         
         lastRoute = token;
     }
     
-    if (m_meetingId.empty()) 
+    if (m_meetingId.empty()) {
+        cerr << "unable to parse meeting ID from join URL" << endl;
         return false;
+    }
     
     auto pwdIt = url.queryParams.find("pwd");
-    if (pwdIt == url.queryParams.end()) 
+    if (pwdIt == url.queryParams.end() || pwdIt->second.empty()) {
+        cerr << "join URL must include pwd query parameter" << endl;
         return false;
+    }
     
     m_password = pwdIt->second;
+    m_isMeetingStart = false;
     
     return true;
 }
@@ -163,4 +176,3 @@ const string& Config::displayName() const {
 const string& Config::zoomHost() const {
     return m_zoomHost;
 }
-

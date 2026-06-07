@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <locale>
 #include <string>
+#include <cctype>
 
 #include <CLI/CLI.hpp>
 
@@ -46,7 +47,7 @@ class Config {
     string m_joinToken;
     string m_onBehalfToken;
 
-    bool m_isMeetingStart;
+    bool m_isMeetingStart = false;
 
 
 public:

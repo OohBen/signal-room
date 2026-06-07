@@ -392,10 +392,33 @@ function parseZoomJoinUrl(value: unknown): string {
   if (parsed.protocol !== "https:" || !/\.?zoom\.us$/i.test(parsed.hostname)) {
     throw new Error("joinUrl must be a zoom.us HTTPS URL");
   }
-  if (!/^\/(?:j|s)\/\d+/.test(parsed.pathname)) {
+
+  const meetingId = extractZoomMeetingId(parsed.pathname);
+  if (!meetingId) {
     throw new Error("joinUrl must be a Zoom meeting join URL");
   }
-  return parsed.toString();
+
+  const password = parsed.searchParams.get("pwd");
+  if (!password) {
+    throw new Error("joinUrl must include the Zoom meeting password");
+  }
+
+  const normalized = new URL(`https://${parsed.hostname}/j/${meetingId}`);
+  normalized.searchParams.set("pwd", password);
+  return normalized.toString();
+}
+
+function extractZoomMeetingId(pathname: string): string | undefined {
+  const parts = pathname.split("/").filter(Boolean);
+  let candidate: string | undefined;
+  if ((parts[0] === "j" || parts[0] === "s") && parts[1]) {
+    candidate = parts[1];
+  } else if (parts[0] === "wc" && (parts[1] === "join" || parts[1] === "j") && parts[2]) {
+    candidate = parts[2];
+  }
+
+  const digits = candidate?.replace(/\D/g, "") ?? "";
+  return digits.length >= 9 ? digits : undefined;
 }
 
 function parseString(value: unknown, name: string): string {
