@@ -1,0 +1,18 @@
+{
+  "name": "signal-room-zoom-bot-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Reads PCM from the C++ Zoom bot's Unix socket, resamples 32kHz->24kHz, forwards to the gateway /live-audio WS.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "openai": "^6.42.0",
+    "ws": "^8.21.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

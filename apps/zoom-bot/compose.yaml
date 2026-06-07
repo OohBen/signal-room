@@ -1,0 +1,21 @@
+services:
+  zoomsdk: &zoomsdk
+    build: ./
+    # Apple Silicon: linux/arm64 runs natively (no Rosetta). If you switch to
+    # an x86_64 host, change this to linux/amd64 and download the Linux-x86_64
+    # SDK instead.
+    platform: linux/arm64
+    volumes:
+      - .:/tmp/meeting-sdk-linux-sample
+      - ~/.config/spacetime:/root/.config/spacetime:ro
+    extra_hosts:
+      # Bot fetches the operator config from the gateway at startup.
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    environment:
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      BRIDGE_GATEWAY_URL: "${BRIDGE_GATEWAY_URL:-http://host.docker.internal:8787}"
+      BRIDGE_ROOM_CODE: "${BRIDGE_ROOM_CODE:-ZOOM-LIVE}"
+      BRIDGE_DISPLAY_NAME: "${BRIDGE_DISPLAY_NAME:-Signal Room Notetaker}"
+      BRIDGE_SPACETIME_DB: "${BRIDGE_SPACETIME_DB:-signal-room-server-v3dax}"
