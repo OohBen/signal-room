@@ -82,6 +82,8 @@ export interface SpacetimeLiveBridge {
   addSharedNote: (body: string, nodeId?: string, sourceDisplayName?: string) => Promise<boolean>;
   addTranscriptChunk: (text: string, source?: string) => Promise<boolean>;
   createAgentTask: (instructions: string, nodeId?: string) => Promise<boolean>;
+  renameRoom: (title: string) => Promise<boolean>;
+  deleteMapNode: (nodeId: string) => Promise<boolean>;
   updateMapNode: (nodeId: string, patch: { title?: string; summary?: string; x?: number; y?: number }) => Promise<boolean>;
   runRealtimeOperatorTool: (name: string, rawArguments: string) => Promise<boolean>;
   setRoomFocus: (nodeId: string, label: string) => Promise<boolean>;
@@ -841,6 +843,18 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
         instructions,
         priority: 1,
       });
+      return true;
+    },
+    renameRoom: async (title: string) => {
+      if (!conn || !connectionState.isActive || roomId === undefined) return false;
+      await conn.reducers.renameRoom({ roomId, title });
+      return true;
+    },
+    deleteMapNode: async (nodeId: string) => {
+      if (!conn || !connectionState.isActive || roomId === undefined) return false;
+      const dbNodeId = nodeIdFromUi(nodeId);
+      if (dbNodeId === undefined) return false;
+      await conn.reducers.deleteMapNode({ nodeId: dbNodeId });
       return true;
     },
     updateMapNode: async (nodeId: string, patch: { title?: string; summary?: string; x?: number; y?: number }) => {

@@ -215,6 +215,11 @@ main {
   background: var(--panel-solid);
 }
 
+.room-pill.editing {
+  width: min(560px, 38vw);
+  padding-right: 6px;
+}
+
 .room-pill .q {
   min-width: 0;
   overflow: hidden;
@@ -225,6 +230,28 @@ main {
   color: var(--ink-2);
 }
 
+.room-title-button {
+  flex: 1 1 auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.room-title-input {
+  min-width: 0;
+  flex: 1 1 auto;
+  height: 26px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 750;
+}
+
 .room-pill .code {
   flex: 0 0 auto;
   padding: 3px 7px;
@@ -233,6 +260,30 @@ main {
   color: var(--muted);
   font-size: 11px;
   font-weight: 700;
+}
+
+.pill-icon {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pill-icon:hover {
+  border-color: var(--line);
+  background: var(--raise);
+  color: var(--accent);
+}
+
+.room-edit {
+  margin-left: -6px;
 }
 
 .bar-spacer {
@@ -1310,6 +1361,15 @@ button.feed-item:hover,
 .inline-action:hover {
   border-color: var(--line-strong);
   color: var(--ink);
+}
+
+.inline-action.danger {
+  color: var(--red);
+}
+
+.inline-action.danger:hover {
+  border-color: color-mix(in srgb, var(--red) 44%, var(--line));
+  background: var(--red-bg);
 }
 
 .node-edit-form {

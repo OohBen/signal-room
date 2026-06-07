@@ -103,6 +103,11 @@ function RoomApp() {
       onLayoutChange={setLayout}
       onNewRoom={openNewRoom}
       onPrivateOpen={() => setPrivateOpen(true)}
+      onRoomTitleChange={async (title) => {
+        const renamed = await room.actions.renameRoom(title);
+        showToast(renamed ? "Room renamed" : "Room rename did not sync");
+        return renamed;
+      }}
       onThemeToggle={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
     >
       <RoomDisplay room={room} layout={layout} onLayoutChange={setLayout} onToast={showToast} />

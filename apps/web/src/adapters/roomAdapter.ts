@@ -25,6 +25,8 @@ export interface SignalRoomActions {
   addSharedNote: (text: string) => Promise<boolean>;
   addTranscriptChunk: (text: string) => Promise<boolean>;
   redirectAgent: (text: string) => Promise<boolean>;
+  renameRoom: (title: string) => Promise<boolean>;
+  deleteMapNode: (nodeId: string) => Promise<boolean>;
   updateMapNode: (nodeId: string, patch: { title?: string; summary?: string }) => Promise<boolean>;
   runRealtimeOperatorTool: (name: string, rawArguments: string) => Promise<boolean>;
   moveMapNode: (nodeId: string, x: number, y: number) => Promise<boolean>;
@@ -356,6 +358,21 @@ export function useRoomState(): SignalRoomSnapshot {
     return true;
   }, [focusNodeId, live]);
 
+  const renameRoom = useCallback(
+    async (title: string) => {
+      const nextTitle = title.trim();
+      if (!nextTitle) return false;
+
+      try {
+        return await live.renameRoom(nextTitle);
+      } catch (error: unknown) {
+        console.error("Unable to rename room", error);
+        return false;
+      }
+    },
+    [live]
+  );
+
   const updateMapNode = useCallback(
     async (nodeId: string, patch: { title?: string; summary?: string }) => {
       const title = patch.title?.trim();
@@ -370,6 +387,22 @@ export function useRoomState(): SignalRoomSnapshot {
       }
     },
     [live]
+  );
+
+  const deleteMapNode = useCallback(
+    async (nodeId: string) => {
+      try {
+        const deleted = await live.deleteMapNode(nodeId);
+        if (deleted && focusNodeId === nodeId) {
+          setFocusNodeId("");
+        }
+        return deleted;
+      } catch (error: unknown) {
+        console.error("Unable to delete map node", error);
+        return false;
+      }
+    },
+    [focusNodeId, live]
   );
 
   const moveMapNode = useCallback(
@@ -455,6 +488,8 @@ export function useRoomState(): SignalRoomSnapshot {
       addSharedNote,
       addTranscriptChunk,
       redirectAgent,
+      renameRoom,
+      deleteMapNode,
       updateMapNode,
       runRealtimeOperatorTool,
       moveMapNode,
@@ -470,9 +505,11 @@ export function useRoomState(): SignalRoomSnapshot {
       claimRoomMic,
       cleanMapLayout,
       clearFocusNode,
+      deleteMapNode,
       moveMapNode,
       moveCursor,
       redirectAgent,
+      renameRoom,
       releaseRoomMic,
       runRealtimeOperatorTool,
       setDisplayName,

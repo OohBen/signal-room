@@ -46,12 +46,14 @@ import CreateAgentTaskReducer from "./create_agent_task_reducer";
 import CreateMapNodeReducer from "./create_map_node_reducer";
 import CreateQuestionCandidateReducer from "./create_question_candidate_reducer";
 import CreateRoomReducer from "./create_room_reducer";
+import DeleteMapNodeReducer from "./delete_map_node_reducer";
 import JoinRoomReducer from "./join_room_reducer";
 import RealtimeCorrectNodeReducer from "./realtime_correct_node_reducer";
 import RealtimeMapSignalReducer from "./realtime_map_signal_reducer";
 import RealtimePassiveQuestionReducer from "./realtime_passive_question_reducer";
 import RealtimeQuickAgentReducer from "./realtime_quick_agent_reducer";
 import ReleaseRoomMicReducer from "./release_room_mic_reducer";
+import RenameRoomReducer from "./rename_room_reducer";
 import SetNodeAgentReducer from "./set_node_agent_reducer";
 import SetRoomFocusReducer from "./set_room_focus_reducer";
 import UpdateCursorReducer from "./update_cursor_reducer";
@@ -366,12 +368,14 @@ const reducersSchema = __reducers(
   __reducerSchema("create_map_node", CreateMapNodeReducer),
   __reducerSchema("create_question_candidate", CreateQuestionCandidateReducer),
   __reducerSchema("create_room", CreateRoomReducer),
+  __reducerSchema("delete_map_node", DeleteMapNodeReducer),
   __reducerSchema("join_room", JoinRoomReducer),
   __reducerSchema("realtime_correct_node", RealtimeCorrectNodeReducer),
   __reducerSchema("realtime_map_signal", RealtimeMapSignalReducer),
   __reducerSchema("realtime_passive_question", RealtimePassiveQuestionReducer),
   __reducerSchema("realtime_quick_agent", RealtimeQuickAgentReducer),
   __reducerSchema("release_room_mic", ReleaseRoomMicReducer),
+  __reducerSchema("rename_room", RenameRoomReducer),
   __reducerSchema("set_node_agent", SetNodeAgentReducer),
   __reducerSchema("set_room_focus", SetRoomFocusReducer),
   __reducerSchema("update_cursor", UpdateCursorReducer),

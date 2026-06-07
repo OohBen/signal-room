@@ -548,6 +548,23 @@ export const joinRoom = spacetimedb.reducer(
   }
 );
 
+export const renameRoom = spacetimedb.reducer(
+  {
+    roomId: t.u64(),
+    title: t.string(),
+  },
+  (ctx, { roomId, title }) => {
+    const existing = requireRoom(ctx, roomId);
+    const roomTitle = cleanText(title, existing.title).slice(0, 96);
+    ctx.db.room.roomId.update({
+      ...existing,
+      title: roomTitle,
+      updatedAt: ctx.timestamp,
+    });
+    emitRoomEvent(ctx, roomId, 'room_renamed', `Room renamed to ${roomTitle}`);
+  }
+);
+
 export const upsertParticipant = spacetimedb.reducer(
   {
     roomId: t.u64(),
@@ -1311,12 +1328,29 @@ function rtIsWeakMapSignal(
   if (/\b(?:conversation summary|current discussion|general discussion|room discussion)\b/.test(normalizedTitle)) {
     return true;
   }
+  if (rtIsGenericClarificationSignal(title, summary)) return true;
   if (/^(?:um|uh|oh|yeah|ok|okay|right|that|sure|mm|hmm)\b/.test(normalizedTitle)) return true;
   if (normalizedSummary.length < 28) return true;
   if (/\b(?:only|just)\b.*\b(?:spoken|said|mentioned)\b/.test(normalizedSummary)) return true;
   if (/\b(?:no further discussion|brief conversation|nothing substantive)\b/.test(normalizedSummary)) return true;
 
   return false;
+}
+
+function rtIsGenericClarificationSignal(title: string, summary: string): boolean {
+  const text = rtNormalizeComparableText(`${title} ${summary}`);
+  if (/\b(?:clarify|clarifying|refine|restate|define)\b.*\b(?:main question|room question|central question|current question|topic)\b/.test(text)) {
+    return true;
+  }
+  if (/\b(?:main question|room question|central question|current question)\b/.test(text) && /\b(?:generic|unclear|unknown|not specified|needs clarification)\b/.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+function rtCanReplaceGenericRoot(nodes: RealtimeNodeRef[], seed: { title: string; summary: string }): boolean {
+  if (nodes.length > 1) return false;
+  return !rtIsGenericClarificationSignal(seed.title, seed.summary);
 }
 
 function rtSemanticGroupForSignal(
@@ -1578,7 +1612,7 @@ function rtEnsureRootNode(
 
   const root = rtFindRootNode(nodes);
   if (root) {
-    if (rtIsGenericRoot(root) && !rtIsWeakMapSignal(seed.title, seed.summary, 0.9)) {
+    if (rtIsGenericRoot(root) && rtCanReplaceGenericRoot(nodes, seed) && !rtIsWeakMapSignal(seed.title, seed.summary, 0.9)) {
       rtUpdateNode(ctx, root.id, {
         title: seed.title,
         summary: seed.summary,
@@ -1720,6 +1754,46 @@ export const realtimeMapSignal = spacetimedb.reducer(
     if (resolvedTask && !rtTaskExists(ctx, roomId, resolvedTask)) {
       rtCreateTask(ctx, roomId, node.id, resolvedTask, cleanUrgency === 'high' ? 2 : 1);
     }
+  }
+);
+
+export const deleteMapNode = spacetimedb.reducer(
+  {
+    nodeId: t.u64(),
+  },
+  (ctx, { nodeId }) => {
+    const existing = ctx.db.mapNode.nodeId.find(nodeId);
+    if (existing === null) {
+      throw new SenderError('map node not found');
+    }
+
+    for (const edge of [...ctx.db.mapEdge.roomId.filter(existing.roomId)]) {
+      if (edge.fromNodeId === nodeId || edge.toNodeId === nodeId) {
+        ctx.db.mapEdge.edgeId.delete(edge.edgeId);
+      }
+    }
+    for (const question of [...ctx.db.questionCandidate.roomId.filter(existing.roomId)]) {
+      if (question.nodeId === nodeId) ctx.db.questionCandidate.questionId.delete(question.questionId);
+    }
+    for (const task of [...ctx.db.agentTask.roomId.filter(existing.roomId)]) {
+      if (task.nodeId === nodeId) ctx.db.agentTask.taskId.delete(task.taskId);
+    }
+    for (const output of [...ctx.db.agentOutput.roomId.filter(existing.roomId)]) {
+      if (output.nodeId === nodeId) ctx.db.agentOutput.outputId.delete(output.outputId);
+    }
+    for (const row of [...ctx.db.finding.roomId.filter(existing.roomId)]) {
+      if (row.nodeId === nodeId) ctx.db.finding.findingId.delete(row.findingId);
+    }
+    const focus = ctx.db.roomFocus.roomId.find(existing.roomId);
+    if (focus !== null && focus.nodeId === nodeId) {
+      ctx.db.roomFocus.roomId.update({ ...focus, nodeId: undefined, label: 'Room synthesis', updatedAt: ctx.timestamp });
+    }
+    const agent = ctx.db.nodeAgent.nodeId.find(nodeId);
+    if (agent !== null) ctx.db.nodeAgent.nodeId.delete(nodeId);
+
+    ctx.db.mapNode.nodeId.delete(nodeId);
+    touchRoom(ctx, existing.roomId);
+    emitRoomEvent(ctx, existing.roomId, 'map_node_deleted', existing.title);
   }
 );
 

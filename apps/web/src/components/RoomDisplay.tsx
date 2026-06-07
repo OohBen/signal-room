@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Check, ChevronRight, ExternalLink, FileText, Network, Send, Sparkles, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ChevronRight, ExternalLink, FileText, Network, Send, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { SignalRoomSnapshot } from "../adapters/roomAdapter";
 import { GATEWAY_URL, SPACETIME_DATABASE } from "../config";
@@ -458,6 +458,17 @@ function InspectorPanel({
     onToast("Map node updated");
   }
 
+  async function deleteNode() {
+    if (isEmpty || node.isRoot) return;
+    const deleted = await room.actions.deleteMapNode(node.id);
+    if (!deleted) {
+      onToast("Card did not delete");
+      return;
+    }
+    onBackToSignals();
+    onToast("Card deleted");
+  }
+
   return (
     <aside className="panel right">
       <div className="panel-head">
@@ -487,6 +498,12 @@ function InspectorPanel({
               <button className="inline-action" type="button" onClick={() => setIsEditingNode((open) => !open)}>
                 {isEditingNode ? "Cancel" : "Edit"}
               </button>
+              {!isEmpty && !node.isRoot ? (
+                <button className="inline-action danger" type="button" onClick={deleteNode} title="Delete bad card">
+                  <Trash2 size={13} strokeWidth={2.1} />
+                  Delete
+                </button>
+              ) : null}
             </div>
             {isEditingNode ? (
               <div className="node-edit-form">
@@ -818,8 +835,12 @@ function BriefingLayout({
   onJump: (nodeId: string) => void;
 }) {
   const { state } = room;
-  const alertNode = state.mapNodes.find((node) => node.hasAlert) ?? state.mapNodes[0];
   const openQuestions = useMemo(() => briefingQuestions(state.queueItems), [state.queueItems]);
+  const primaryNode =
+    state.mapNodes.find((node) => node.id === state.defaultFocusNodeId) ??
+    state.mapNodes.find((node) => node.isRoot) ??
+    state.mapNodes[0];
+  const alertNode = chooseBriefingDecisionNode(state.mapNodes, primaryNode);
   const latestSignals = useMemo(() => briefingTranscript(state.transcript), [state.transcript]);
 
   return (
@@ -829,7 +850,7 @@ function BriefingLayout({
           <div className="section-label">Room briefing · {state.roomCode} · catch up in 20 seconds</div>
           <h1>{state.question}</h1>
           <p className="lead">
-            {state.mapNodes[0]?.focus.text ??
+            {primaryNode?.focus.text ??
               "The room is waiting for its first live signal. Start the mic and the map will fill as people talk."}
           </p>
           <div className="digest-stats">
@@ -913,6 +934,20 @@ function BriefingLayout({
       </div>
     </section>
   );
+}
+
+function chooseBriefingDecisionNode(nodes: SignalRoomSnapshot["state"]["mapNodes"], primaryNode?: SignalRoomSnapshot["state"]["mapNodes"][number]) {
+  return (
+    nodes.find((node) => node.hasAlert && !isTopicShiftNode(node)) ??
+    primaryNode ??
+    nodes.find((node) => !isTopicShiftNode(node)) ??
+    nodes[0]
+  );
+}
+
+function isTopicShiftNode(node: SignalRoomSnapshot["state"]["mapNodes"][number]): boolean {
+  const text = `${node.title} ${node.focus.type}`.toLowerCase();
+  return /\btopic shift\b|\bshift to\b/.test(text);
 }
 
 function briefingQuestions(items: QueueItem[]): QueueItem[] {

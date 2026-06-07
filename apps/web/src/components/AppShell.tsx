@@ -1,6 +1,6 @@
-import { Bot, BookOpen, CheckSquare, Database, LayoutPanelLeft, Moon, Plus, Settings, Sparkles, Sun } from "lucide-react";
+import { Bot, BookOpen, Check, CheckSquare, Database, LayoutPanelLeft, Moon, Pencil, Plus, Settings, Sparkles, Sun, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import type { WorkspaceLayout } from "../types/signalRoom";
 import { RecentRoomsMenu } from "./RecentRoomsMenu";
 
@@ -15,6 +15,7 @@ interface AppShellProps {
   onLayoutChange: (layout: WorkspaceLayout) => void;
   onNewRoom: () => void;
   onPrivateOpen: () => void;
+  onRoomTitleChange: (title: string) => Promise<boolean>;
   onThemeToggle: () => void;
   children: ReactNode;
 }
@@ -35,12 +36,32 @@ export function AppShell({
   onLayoutChange,
   onNewRoom,
   onPrivateOpen,
+  onRoomTitleChange,
   onThemeToggle,
   children,
 }: AppShellProps) {
   const hereCount = Math.max(1, presenceCount);
   const userLabel = userDisplayName.trim() || "Guest";
   const userInitial = userLabel.slice(0, 1).toUpperCase() || "G";
+  const [editingRoomTitle, setEditingRoomTitle] = useState(false);
+  const [roomTitleDraft, setRoomTitleDraft] = useState(roomQuestion);
+
+  useEffect(() => {
+    if (!editingRoomTitle) setRoomTitleDraft(roomQuestion);
+  }, [editingRoomTitle, roomQuestion]);
+
+  async function submitRoomTitle(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextTitle = roomTitleDraft.trim();
+    if (!nextTitle || nextTitle === roomQuestion) {
+      setRoomTitleDraft(roomQuestion);
+      setEditingRoomTitle(false);
+      return;
+    }
+
+    const renamed = await onRoomTitleChange(nextTitle);
+    if (renamed) setEditingRoomTitle(false);
+  }
 
   return (
     <div className="app">
@@ -55,10 +76,44 @@ export function AppShell({
           </span>
         </div>
 
-        <div className="room-pill">
-          <span className="q">{roomQuestion}</span>
-          <span className="code mono">{roomCode}</span>
-        </div>
+        <form className={`room-pill${editingRoomTitle ? " editing" : ""}`} onSubmit={submitRoomTitle}>
+          {editingRoomTitle ? (
+            <>
+              <input
+                className="room-title-input"
+                value={roomTitleDraft}
+                onChange={(event) => setRoomTitleDraft(event.target.value)}
+                aria-label="Room name"
+                maxLength={96}
+                autoFocus
+              />
+              <button className="pill-icon" type="submit" title="Save room name">
+                <Check size={14} strokeWidth={2.2} />
+              </button>
+              <button
+                className="pill-icon"
+                type="button"
+                title="Cancel"
+                onClick={() => {
+                  setRoomTitleDraft(roomQuestion);
+                  setEditingRoomTitle(false);
+                }}
+              >
+                <X size={14} strokeWidth={2.2} />
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="q room-title-button" type="button" onClick={() => setEditingRoomTitle(true)} title="Rename room">
+                {roomQuestion}
+              </button>
+              <span className="code mono">{roomCode}</span>
+              <button className="pill-icon room-edit" type="button" onClick={() => setEditingRoomTitle(true)} title="Rename room">
+                <Pencil size={13} strokeWidth={2.1} />
+              </button>
+            </>
+          )}
+        </form>
 
         <span className="bar-spacer" />
 
