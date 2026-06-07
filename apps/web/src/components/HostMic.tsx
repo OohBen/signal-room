@@ -7,7 +7,11 @@ import {
   startRealtimeTranscription,
   type RealtimeTranscriptionSession,
 } from "../lib/realtimeClient";
+import { startGeminiLive, type GeminiLiveSession } from "../lib/geminiLiveClient";
 import { Chip, PanelTitle } from "./Primitives";
+
+type RealtimeProvider = "gemini" | "openai";
+type LiveSession = RealtimeTranscriptionSession | GeminiLiveSession;
 
 interface HostMicProps {
   room: SignalRoomSnapshot;
@@ -28,7 +32,9 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   const [researching, setResearching] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState("Mic idle");
   const [voiceStarting, setVoiceStarting] = useState(false);
-  const realtimeSessionRef = useRef<RealtimeTranscriptionSession | null>(null);
+  const [provider, setProvider] = useState<RealtimeProvider>("gemini");
+  const providerRef = useRef<RealtimeProvider>("gemini");
+  const realtimeSessionRef = useRef<LiveSession | null>(null);
   const pendingRouteTranscriptRef = useRef("");
   const liveRoutingRef = useRef(true);
   const routingRef = useRef(false);
@@ -107,6 +113,14 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     onToast(next ? "Live routing enabled" : "Live routing paused");
   }
 
+  function toggleProvider() {
+    if (listening || voiceStarting) return;
+    const next: RealtimeProvider = provider === "gemini" ? "openai" : "gemini";
+    setProvider(next);
+    providerRef.current = next;
+    onToast(next === "gemini" ? "Engine → Gemini 3.1 Flash Live" : "Engine → OpenAI Realtime");
+  }
+
   // ── Realtime mic: browser ↔ OpenAI over WebRTC ──────────────────────────────
   // The gateway only mints an ephemeral token; audio never passes through it.
   // Each finalized transcript is written to the shared transcript log and routed
@@ -127,23 +141,26 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
 
   async function connectRealtime() {
     clearReconnectTimer();
-    setVoiceStatus("Starting Realtime transcription");
+    setVoiceStatus("Starting live transcription");
+    const handlers = {
+      onStatus: (status: string) => {
+        if (!stopRequestedRef.current) setVoiceStatus(status);
+      },
+      onInterim: (text: string) => setInterim(text),
+      onFinal: (text: string) => {
+        void handleFinalTranscript(text);
+      },
+      onToolCall: (name: string, rawArguments: string) => {
+        void executeRealtimeTool(name, rawArguments);
+      },
+      onError: (message: string, fatal: boolean) => handleRealtimeError(message, fatal),
+      onClosed: () => handleRealtimeClosed(),
+    };
     try {
-      const session = await startRealtimeTranscription({
-        onStatus: (status) => {
-          if (!stopRequestedRef.current) setVoiceStatus(status);
-        },
-        onInterim: (text) => setInterim(text),
-        onFinal: (text) => {
-          void handleFinalTranscript(text);
-        },
-        onToolCall: (name, rawArguments) => {
-          void executeRealtimeTool(name, rawArguments);
-        },
-        onOperatorDone: () => finishOperator(),
-        onError: (message, fatal) => handleRealtimeError(message, fatal),
-        onClosed: () => handleRealtimeClosed(),
-      });
+      const session: LiveSession =
+        providerRef.current === "gemini"
+          ? await startGeminiLive(handlers)
+          : await startRealtimeTranscription({ ...handlers, onOperatorDone: () => finishOperator() });
 
       // Stop may have been requested while the async handshake was in flight.
       if (stopRequestedRef.current || !captureShouldRunRef.current) {
@@ -155,9 +172,13 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
       reconnectAttemptsRef.current = 0;
       setListening(true);
       setVoiceStarting(false);
-      setVoiceStatus(`Listening live · ${session.transcriptionModel}`);
+      const engine =
+        providerRef.current === "gemini"
+          ? `Gemini · ${session.model}`
+          : `OpenAI · ${"transcriptionModel" in session ? session.transcriptionModel : session.model}`;
+      setVoiceStatus(`Listening live · ${engine}`);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Could not start realtime mic";
+      const message = error instanceof Error ? error.message : "Could not start live mic";
       handleRealtimeError(message, isFatalRealtimeError(message));
     }
   }
@@ -173,8 +194,9 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
 
     // Direct "Hey agent, …" → fast lane only (no map card).
     if (maybeAskAgent(clean)) return;
-    // Otherwise let gpt-realtime-2 update the map directly from this turn.
-    triggerOperator(clean);
+    // OpenAI is two-pass: feed the transcript back to the operator. Gemini Live
+    // emits map tool-calls directly from the audio, so there's nothing to trigger.
+    if (providerRef.current === "openai") triggerOperator(clean);
   }
 
   // Drive the realtime operator: send the live room snapshot + this turn back to
@@ -182,7 +204,7 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   function triggerOperator(latest: string) {
     if (!liveRoutingRef.current) return;
     const session = realtimeSessionRef.current;
-    if (!session || session.tools.length === 0) return;
+    if (!session || !("requestOperator" in session) || session.tools.length === 0) return;
 
     const snapshot = stateRef.current;
     const recent = [...snapshot.transcript]
@@ -484,6 +506,16 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
         </div>
         <div className="capture-dock-actions">
           <button
+            className="ghost-btn"
+            type="button"
+            onClick={toggleProvider}
+            disabled={listening || voiceStarting}
+            title="Switch live transcription engine"
+          >
+            <Radio size={16} strokeWidth={2.1} />
+            {provider === "gemini" ? "Gemini" : "OpenAI"}
+          </button>
+          <button
             className={liveRouting ? "primary-btn" : "ghost-btn"}
             type="button"
             onClick={toggleLiveRouting}
@@ -537,6 +569,16 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
               <p>{adapterStatus.mode === "spacetime" ? "live Realtime + SpacetimeDB room" : "connecting"}</p>
             </div>
             <div className="host-actions">
+              <button
+                className="ghost-btn"
+                type="button"
+                onClick={toggleProvider}
+                disabled={listening || voiceStarting}
+                title="Switch live transcription engine"
+              >
+                <Radio size={17} strokeWidth={2.1} />
+                {provider === "gemini" ? "Gemini Live" : "OpenAI Realtime"}
+              </button>
               <button
                 className={liveRouting ? "primary-btn" : "ghost-btn"}
                 type="button"

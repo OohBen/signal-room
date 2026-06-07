@@ -31,6 +31,7 @@ export interface HealthServerOptions {
   fleet?: (request: FleetRequest) => Promise<unknown>;
   ask?: (request: AskRequest) => Promise<unknown>;
   realtimeToken?: () => Promise<unknown>;
+  geminiToken?: () => Promise<unknown>;
   realtimeTool?: (request: RealtimeToolRequest) => Promise<unknown>;
 }
 
@@ -259,6 +260,28 @@ async function handleRequest(
         ok: false,
         error: "bad_request",
         message: error instanceof Error ? error.message : "Invalid realtime-token request",
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && path === "/gemini-token") {
+    if (!options.geminiToken) {
+      writeJson(response, 503, {
+        ok: false,
+        error: "gemini_token_unavailable",
+      });
+      return;
+    }
+
+    try {
+      const result = await options.geminiToken();
+      writeJson(response, 200, { ok: true, result });
+    } catch (error: unknown) {
+      writeJson(response, 400, {
+        ok: false,
+        error: "bad_request",
+        message: error instanceof Error ? error.message : "Invalid gemini-token request",
       });
     }
     return;
