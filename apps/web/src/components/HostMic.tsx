@@ -7,11 +7,7 @@ import {
   startRealtimeTranscription,
   type RealtimeTranscriptionSession,
 } from "../lib/realtimeClient";
-import { startGeminiLive, type GeminiLiveSession } from "../lib/geminiLiveClient";
 import { Chip, PanelTitle } from "./Primitives";
-
-type RealtimeProvider = "gemini" | "openai";
-type LiveSession = RealtimeTranscriptionSession | GeminiLiveSession;
 
 interface HostMicProps {
   room: SignalRoomSnapshot;
@@ -32,9 +28,7 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   const [researching, setResearching] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState("Mic idle");
   const [voiceStarting, setVoiceStarting] = useState(false);
-  const [provider, setProvider] = useState<RealtimeProvider>("gemini");
-  const providerRef = useRef<RealtimeProvider>("gemini");
-  const realtimeSessionRef = useRef<LiveSession | null>(null);
+  const realtimeSessionRef = useRef<RealtimeTranscriptionSession | null>(null);
   const pendingRouteTranscriptRef = useRef("");
   const liveRoutingRef = useRef(true);
   const routingRef = useRef(false);
@@ -113,14 +107,6 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     onToast(next ? "Live routing enabled" : "Live routing paused");
   }
 
-  function toggleProvider() {
-    if (listening || voiceStarting) return;
-    const next: RealtimeProvider = provider === "gemini" ? "openai" : "gemini";
-    setProvider(next);
-    providerRef.current = next;
-    onToast(next === "gemini" ? "Engine → Gemini 3.1 Flash Live" : "Engine → OpenAI Realtime");
-  }
-
   // ── Realtime mic: browser ↔ OpenAI over WebRTC ──────────────────────────────
   // The gateway only mints an ephemeral token; audio never passes through it.
   // Each finalized transcript is written to the shared transcript log and routed
@@ -142,25 +128,21 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   async function connectRealtime() {
     clearReconnectTimer();
     setVoiceStatus("Starting live transcription");
-    const handlers = {
-      onStatus: (status: string) => {
-        if (!stopRequestedRef.current) setVoiceStatus(status);
-      },
-      onInterim: (text: string) => setInterim(text),
-      onFinal: (text: string) => {
-        void handleFinalTranscript(text);
-      },
-      onToolCall: (name: string, rawArguments: string) => {
-        void executeRealtimeTool(name, rawArguments);
-      },
-      onError: (message: string, fatal: boolean) => handleRealtimeError(message, fatal),
-      onClosed: () => handleRealtimeClosed(),
-    };
     try {
-      const session: LiveSession =
-        providerRef.current === "gemini"
-          ? await startGeminiLive(handlers)
-          : await startRealtimeTranscription({ ...handlers, onOperatorDone: () => finishOperator() });
+      // OpenAI realtime session is used for streaming transcription only
+      // (gpt-4o-mini-transcribe). The map operator runs server-side on Cerebras
+      // via POST /operate, so no in-session tool-calls are needed here.
+      const session = await startRealtimeTranscription({
+        onStatus: (status: string) => {
+          if (!stopRequestedRef.current) setVoiceStatus(status);
+        },
+        onInterim: (text: string) => setInterim(text),
+        onFinal: (text: string) => {
+          void handleFinalTranscript(text);
+        },
+        onError: (message: string, fatal: boolean) => handleRealtimeError(message, fatal),
+        onClosed: () => handleRealtimeClosed(),
+      });
 
       // Stop may have been requested while the async handshake was in flight.
       if (stopRequestedRef.current || !captureShouldRunRef.current) {
@@ -172,11 +154,7 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
       reconnectAttemptsRef.current = 0;
       setListening(true);
       setVoiceStarting(false);
-      const engine =
-        providerRef.current === "gemini"
-          ? `Gemini · ${session.model}`
-          : `OpenAI · ${"transcriptionModel" in session ? session.transcriptionModel : session.model}`;
-      setVoiceStatus(`Listening live · ${engine}`);
+      setVoiceStatus(`Listening live · ${session.transcriptionModel}`);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Could not start live mic";
       handleRealtimeError(message, isFatalRealtimeError(message));
@@ -194,20 +172,18 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
 
     // Direct "Hey agent, …" → fast lane only (no map card).
     if (maybeAskAgent(clean)) return;
-    // OpenAI is two-pass: feed the transcript back to the operator. Gemini Live
-    // emits map tool-calls directly from the audio, so there's nothing to trigger.
-    if (providerRef.current === "openai") triggerOperator(clean);
+    // Everything else: the server-side Cerebras operator turns this turn into map
+    // tool-calls (it reads the live room snapshot from SpacetimeDB itself).
+    operateViaGateway(clean);
   }
 
-  // Drive the realtime operator: send the live room snapshot + this turn back to
-  // gpt-realtime-2 over the data channel; it answers with map tool-calls.
-  function triggerOperator(latest: string) {
+  // Server-side operator: POST the latest turn (+ recent context) to /operate,
+  // which runs gpt-oss-120b on Cerebras and executes map tool-calls. One in flight
+  // at a time; keep only the most recent turn queued so we never overlap or drop.
+  function operateViaGateway(latest: string) {
     if (!liveRoutingRef.current) return;
-    const session = realtimeSessionRef.current;
-    if (!session || !("requestOperator" in session) || session.tools.length === 0) return;
 
-    const snapshot = stateRef.current;
-    const recent = [...snapshot.transcript]
+    const recent = [...stateRef.current.transcript]
       .reverse()
       .map((utterance) => utterance.text.trim())
       .filter(Boolean)
@@ -217,49 +193,50 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
 
     if (!hasMapworthySignal([recent, latest].filter(Boolean).join("\n\n"))) return;
 
-    // One operator response at a time; keep only the most recent turn queued.
     if (operatorBusyRef.current) {
       pendingOperatorTextRef.current = latest;
       return;
     }
-
-    const nodes = snapshot.mapNodes;
-    const root = nodes.find((node) => node.isRoot);
-    const lines: string[] = [
-      `Room code: ${snapshot.roomCode}`,
-      `Participant name: ${snapshot.displayName}`,
-      "Current map:",
-      `center: ${root?.title ?? "(none)"}`,
-    ];
-    const branchNodes = nodes.filter((node) => !node.isRoot);
-    if (branchNodes.length === 0) {
-      lines.push("nodes: (none)");
-    } else {
-      lines.push("nodes:");
-      for (const node of branchNodes) {
-        lines.push(`- [${node.focus?.type ?? "node"}] ${node.title}: ${node.summary}`);
-      }
-    }
-    lines.push(
-      "",
-      "Recent prior context:",
-      recent.slice(-1400) || "(none)",
-      "",
-      "LATEST TRANSCRIPT TURN TO ROUTE:",
-      latest.slice(-900),
-      "",
-      "Decide whether the shared state needs a map signal, passive question, quick-agent task, or no action."
-    );
-
-    const toolChoice =
-      nodes.length === 0 ? { type: "function" as const, name: "add_map_signal" } : ("required" as const);
-    const sent = session.requestOperator({ input: lines.join("\n"), toolChoice });
-    if (!sent) return;
     operatorBusyRef.current = true;
     setVoiceStatus("Agent reading the room…");
-    // Safety: if response.done never arrives, release the gate so we don't wedge.
     clearOperatorTimer();
     operatorTimerRef.current = window.setTimeout(() => finishOperator(), 14000);
+
+    void (async () => {
+      try {
+        const response = await fetch(`${GATEWAY_URL}/operate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            roomCode: stateRef.current.roomCode,
+            database: SPACETIME_DATABASE,
+            transcript: latest,
+            recentContext: recent,
+          }),
+        });
+        const payload = (await response.json()) as {
+          ok?: boolean;
+          message?: string;
+          result?: { executed?: Array<{ action?: string; skipped?: boolean }> };
+        };
+        if (!response.ok || payload.ok === false) {
+          throw new Error(payload.message || `Gateway returned ${response.status}`);
+        }
+        const did = (payload.result?.executed ?? []).filter(
+          (e) => e && !e.skipped && e.action && e.action !== "ignore_turn"
+        );
+        if (did.length > 0) {
+          setVoiceStatus(`Map updated · ${did.length} change${did.length > 1 ? "s" : ""}`);
+          void runResearchWorker(true);
+        } else if (!stopRequestedRef.current) {
+          setVoiceStatus("Listening live");
+        }
+      } catch (error: unknown) {
+        onToast(error instanceof Error ? error.message : "Operator failed");
+      } finally {
+        finishOperator();
+      }
+    })();
   }
 
   function finishOperator() {
@@ -268,7 +245,7 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     const pending = pendingOperatorTextRef.current;
     pendingOperatorTextRef.current = null;
     if (pending && captureShouldRunRef.current && !stopRequestedRef.current) {
-      triggerOperator(pending);
+      operateViaGateway(pending);
     }
   }
 
@@ -276,39 +253,6 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     if (operatorTimerRef.current !== undefined) {
       window.clearTimeout(operatorTimerRef.current);
       operatorTimerRef.current = undefined;
-    }
-  }
-
-  // Execute a function_call from gpt-realtime-2 by relaying it to the gateway,
-  // which runs the proven handleRealtimeRoomTool against SpacetimeDB.
-  async function executeRealtimeTool(name: string, rawArguments: string) {
-    const snapshot = stateRef.current;
-    try {
-      const response = await fetch(`${GATEWAY_URL}/realtime-tool`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          roomCode: snapshot.roomCode,
-          database: SPACETIME_DATABASE,
-          name,
-          arguments: rawArguments,
-        }),
-      });
-      const payload = (await response.json()) as {
-        ok?: boolean;
-        message?: string;
-        result?: { action?: string; skipped?: boolean; message?: string };
-      };
-      if (!response.ok || payload.ok === false) {
-        throw new Error(payload.message || `Gateway returned ${response.status}`);
-      }
-      const result = payload.result;
-      if (result && !result.skipped && result.action && result.action !== "ignore_turn") {
-        setVoiceStatus(result.message ? `Map updated · ${result.message}` : `Map updated · ${result.action}`);
-        void runResearchWorker(true);
-      }
-    } catch (error: unknown) {
-      onToast(error instanceof Error ? error.message : "Realtime tool call failed");
     }
   }
 
@@ -506,16 +450,6 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
         </div>
         <div className="capture-dock-actions">
           <button
-            className="ghost-btn"
-            type="button"
-            onClick={toggleProvider}
-            disabled={listening || voiceStarting}
-            title="Switch live transcription engine"
-          >
-            <Radio size={16} strokeWidth={2.1} />
-            {provider === "gemini" ? "Gemini" : "OpenAI"}
-          </button>
-          <button
             className={liveRouting ? "primary-btn" : "ghost-btn"}
             type="button"
             onClick={toggleLiveRouting}
@@ -569,16 +503,6 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
               <p>{adapterStatus.mode === "spacetime" ? "live Realtime + SpacetimeDB room" : "connecting"}</p>
             </div>
             <div className="host-actions">
-              <button
-                className="ghost-btn"
-                type="button"
-                onClick={toggleProvider}
-                disabled={listening || voiceStarting}
-                title="Switch live transcription engine"
-              >
-                <Radio size={17} strokeWidth={2.1} />
-                {provider === "gemini" ? "Gemini Live" : "OpenAI Realtime"}
-              </button>
               <button
                 className={liveRouting ? "primary-btn" : "ghost-btn"}
                 type="button"

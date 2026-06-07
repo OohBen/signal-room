@@ -4,14 +4,18 @@ import { OpenAIRealtimeWS } from "openai/realtime/ws";
 import { WebSocket, type RawData } from "ws";
 
 import { getSecret } from "../config/env.js";
-import { ACTION_REALTIME_ROOM_TOOLS, buildOperatorInstructions } from "./operatorConfig.js";
+import {
+  ACTION_REALTIME_ROOM_TOOLS,
+  buildOperatorInput,
+  buildOperatorInstructions,
+  type RealtimeOperatorInput,
+} from "./operatorConfig.js";
 import {
   handleRealtimeRoomTool,
   readRealtimeRoomSnapshot,
   shouldRunRealtimeOperator,
   writeRealtimeTranscriptTurn,
   type RealtimeRoomContext,
-  type RealtimeRoomSnapshot,
 } from "./realtimeRoomTools.js";
 
 const DEFAULT_REALTIME_MODEL = "gpt-realtime-2";
@@ -563,47 +567,6 @@ function buildTranscriptionPrompt(contextTranscript: unknown): string {
   ]
     .filter(Boolean)
     .join("\n\n");
-}
-
-interface RealtimeOperatorInput {
-  latestTranscript: string;
-  recentContext: string;
-  snapshot: RealtimeRoomSnapshot;
-}
-
-function buildOperatorInput(context: RealtimeRoomContext, input: RealtimeOperatorInput): string {
-  return [
-    `Room code: ${cleanOperatorContext(context.roomCode)}`,
-    `Participant name: ${cleanOperatorContext(context.displayName)}`,
-    "Current map:",
-    formatSnapshot(input.snapshot),
-    "",
-    "Recent prior context:",
-    input.recentContext.trim().slice(-1400) || "(none)",
-    "",
-    "LATEST TRANSCRIPT TURN TO ROUTE:",
-    input.latestTranscript.trim().slice(-900),
-    "",
-    "Decide whether the shared state needs a map signal, passive question, quick-agent task, or no action.",
-  ].join("\n");
-}
-
-function formatSnapshot(snapshot: RealtimeRoomSnapshot): string {
-  const lines = [`center: ${snapshot.rootTitle ?? "(none)"}`];
-  if (snapshot.nodes.length === 0) {
-    lines.push("nodes: (none)");
-    return lines.join("\n");
-  }
-
-  lines.push("nodes:");
-  for (const node of snapshot.nodes) {
-    lines.push(`- [${node.nodeType}] ${node.title}: ${node.summary}`);
-  }
-  return lines.join("\n");
-}
-
-function cleanOperatorContext(value: unknown): string {
-  return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, 80) || "unknown" : "unknown";
 }
 
 function writeClient(socket: WebSocket, payload: unknown): void {

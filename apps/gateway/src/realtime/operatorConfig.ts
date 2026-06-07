@@ -1,5 +1,7 @@
 import type { RealtimeFunctionTool } from "openai/resources/realtime/realtime";
 
+import type { RealtimeRoomContext, RealtimeRoomSnapshot } from "./realtimeRoomTools.js";
+
 export const REALTIME_ROOM_TOOLS: RealtimeFunctionTool[] = [
   {
     type: "function",
@@ -166,4 +168,45 @@ export function buildOperatorInstructions(): string {
     "Private-room claims about people in the room, e.g. who worked harder, who drank caffeine, who stole a phone, or a Scrabble matchup, should usually be preserved as claims/questions without web research tasks unless the room explicitly asks for general outside evidence.",
     "Prefer one strong tool call over many weak ones. Exception: a factor-list turn may create up to five factor cards.",
   ].join("\n");
+}
+
+export interface RealtimeOperatorInput {
+  latestTranscript: string;
+  recentContext: string;
+  snapshot: RealtimeRoomSnapshot;
+}
+
+export function buildOperatorInput(context: RealtimeRoomContext, input: RealtimeOperatorInput): string {
+  return [
+    `Room code: ${cleanOperatorContext(context.roomCode)}`,
+    `Participant name: ${cleanOperatorContext(context.displayName)}`,
+    "Current map:",
+    formatSnapshot(input.snapshot),
+    "",
+    "Recent prior context:",
+    input.recentContext.trim().slice(-1400) || "(none)",
+    "",
+    "LATEST TRANSCRIPT TURN TO ROUTE:",
+    input.latestTranscript.trim().slice(-900),
+    "",
+    "Decide whether the shared state needs a map signal, passive question, quick-agent task, or no action.",
+  ].join("\n");
+}
+
+export function formatSnapshot(snapshot: RealtimeRoomSnapshot): string {
+  const lines = [`center: ${snapshot.rootTitle ?? "(none)"}`];
+  if (snapshot.nodes.length === 0) {
+    lines.push("nodes: (none)");
+    return lines.join("\n");
+  }
+
+  lines.push("nodes:");
+  for (const node of snapshot.nodes) {
+    lines.push(`- [${node.nodeType}] ${node.title}: ${node.summary}`);
+  }
+  return lines.join("\n");
+}
+
+export function cleanOperatorContext(value: unknown): string {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, 80) || "unknown" : "unknown";
 }
