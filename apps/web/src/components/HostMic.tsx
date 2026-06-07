@@ -1,4 +1,4 @@
-import { Bot, Mic, MicOff, Radio, Send } from "lucide-react";
+import { Bot, Mic, MicOff, Radio, Send, Video } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { SignalRoomSnapshot } from "../adapters/roomAdapter";
 import { GATEWAY_URL, SPACETIME_DATABASE } from "../config";
@@ -28,6 +28,8 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   const [researching, setResearching] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState("Mic idle");
   const [voiceStarting, setVoiceStarting] = useState(false);
+  const [zoomJoinUrl, setZoomJoinUrl] = useState("");
+  const [zoomJoining, setZoomJoining] = useState(false);
   const realtimeSessionRef = useRef<RealtimeTranscriptionSession | null>(null);
   const pendingRouteTranscriptRef = useRef("");
   const liveRoutingRef = useRef(true);
@@ -105,6 +107,37 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
     const next = !liveRouting;
     setLiveRouting(next);
     onToast(next ? "Live routing enabled" : "Live routing paused");
+  }
+
+  async function startZoomBot() {
+    const joinUrl = zoomJoinUrl.trim();
+    if (!joinUrl || zoomJoining) return;
+    if (!sharedRoomReady) {
+      onToast("Shared room still connecting");
+      return;
+    }
+
+    setZoomJoining(true);
+    try {
+      const response = await fetch(`${GATEWAY_URL}/zoom-bot/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roomCode: state.roomCode,
+          joinUrl,
+        }),
+      });
+      const payload = (await response.json()) as { ok?: boolean; message?: string };
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.message || `Gateway returned ${response.status}`);
+      }
+      setZoomJoinUrl("");
+      onToast("Zoom bot is joining this room");
+    } catch (error: unknown) {
+      onToast(error instanceof Error ? error.message : "Could not start the Zoom bot");
+    } finally {
+      setZoomJoining(false);
+    }
   }
 
   // ── Realtime mic: browser ↔ OpenAI over WebRTC ──────────────────────────────
@@ -494,6 +527,25 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
             {listening ? "Stop" : voiceStarting ? "Starting" : "Start mic"}
           </button>
         </div>
+        <form
+          className="capture-zoom-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void startZoomBot();
+          }}
+        >
+          <input
+            type="url"
+            value={zoomJoinUrl}
+            onChange={(event) => setZoomJoinUrl(event.target.value)}
+            placeholder="Zoom invite link"
+            aria-label="Zoom invite link"
+          />
+          <button className="ghost-btn zoom-submit-btn" type="submit" disabled={zoomJoining || !zoomJoinUrl.trim()}>
+            <Video size={16} strokeWidth={2.1} />
+            <span>{zoomJoining ? "Joining" : "Join Zoom"}</span>
+          </button>
+        </form>
       </aside>
     );
   }
@@ -557,6 +609,23 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
               onChange={(event) => setChunk(event.target.value)}
             />
             <div className="compose-actions">
+              <input
+                className="zoom-inline-input"
+                type="url"
+                value={zoomJoinUrl}
+                onChange={(event) => setZoomJoinUrl(event.target.value)}
+                placeholder="Zoom invite link"
+                aria-label="Zoom invite link"
+              />
+              <button
+                className="ghost-btn"
+                type="button"
+                onClick={() => void startZoomBot()}
+                disabled={zoomJoining || !zoomJoinUrl.trim()}
+              >
+                <Video size={17} strokeWidth={2.1} />
+                {zoomJoining ? "Joining Zoom" : "Join Zoom"}
+              </button>
               <button
                 className="primary-btn"
                 type="button"

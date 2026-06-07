@@ -1644,6 +1644,7 @@ button.feed-item:hover,
   width: auto;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 10px;
   border: 1px solid var(--line-strong);
@@ -1652,11 +1653,6 @@ button.feed-item:hover,
   box-shadow: var(--shadow);
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
-}
-
-.inspector-shell + .capture-dock,
-.capture-dock {
-  max-height: 68px;
 }
 
 .capture-dock-status {
@@ -1690,6 +1686,42 @@ button.feed-item:hover,
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.capture-zoom-form {
+  flex: 0 1 360px;
+  min-width: 280px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.capture-zoom-form input,
+.zoom-inline-input {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  padding: 0 10px;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 700;
+  outline: none;
+}
+
+.capture-zoom-form input {
+  flex: 1;
+}
+
+.capture-zoom-form input:focus,
+.zoom-inline-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.zoom-submit-btn {
+  white-space: nowrap;
 }
 
 .capture-wave {
