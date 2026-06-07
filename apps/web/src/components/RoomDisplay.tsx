@@ -648,11 +648,3 @@ function jumpToNode(
   room.actions.setFocusNode(nodeId);
   onLayoutChange("canvas");
 }
-
-function fallbackSteps(node: MapNode) {
-  return [
-    { id: "heard", title: "Heard in room", body: node.summary },
-    { id: "source", title: "Attached to map", body: node.focus.source },
-    { id: "next", title: "Needs next action", body: node.focus.action },
-  ];
-}

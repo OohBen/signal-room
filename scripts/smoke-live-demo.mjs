@@ -22,7 +22,6 @@ const work = await postJson(`${options.gatewayUrl}/work-room`, {
   roomCode,
   database: options.database,
   maxTasks: options.maxTasks,
-  forceMock: options.forceMock,
 });
 assert(work.ok === true, "work-room returned ok=false");
 
@@ -66,7 +65,6 @@ function parseArgs(args) {
   const parsed = {
     database: "signal-room",
     displayName: "Smoke Tester",
-    forceMock: true,
     gatewayUrl: process.env.VITE_GATEWAY_URL || "http://127.0.0.1:8787",
     maxTasks: 1,
     roomCode: undefined,
@@ -76,14 +74,6 @@ function parseArgs(args) {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--") {
-      continue;
-    }
-    if (arg === "--real-research") {
-      parsed.forceMock = false;
-      continue;
-    }
-    if (arg === "--mock") {
-      parsed.forceMock = true;
       continue;
     }
     if (arg === "--database") {

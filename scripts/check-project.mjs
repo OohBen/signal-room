@@ -9,7 +9,8 @@ const rootChecks = [
   ["TASKS.md", "sprint tracker"],
   ["STATUS.md", "status tracker"],
   ["apps/spacetime/spacetimedb/src/index.ts", "SpacetimeDB module"],
-  ["mocks/research-room/index.html", "static mock"],
+  ["apps/web/src/lib/realtimeClient.ts", "browser realtime client"],
+  ["apps/gateway/src/realtime/realtimeToken.ts", "realtime token endpoint"],
 ];
 
 const futureChecks = [
@@ -38,7 +39,7 @@ function envNames() {
 }
 
 const names = envNames();
-const requiredEnv = ["OPENAI_API_KEY", "EXA_API_KEY"];
+const requiredEnv = ["OPENAI_API_KEY", "EXA_API_KEY", "OPENROUTER_API_KEY"];
 
 console.log("Signal Room project status\n");
 
@@ -60,4 +61,3 @@ console.log("\nEnv");
 for (const key of requiredEnv) {
   console.log(`${names.includes(key) ? "ok " : "miss"} ${key}`);
 }
-

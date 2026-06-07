@@ -83,19 +83,17 @@ JUDGE SEES: The other participant's cursor moving live on the shared map in the 
 
 ACTION: Click `Host Mic`.
 
-ACTION: Enable `Route live mic` before adding the transcript chunk. This makes final speech/manual chunks route into map nodes and tasks as they arrive.
+ACTION: Click `Start mic`. The browser opens an OpenAI Realtime WebRTC session using an ephemeral token from `POST /realtime-token`; audio does not pass through the gateway. Each final transcript is written to SpacetimeDB, then the realtime operator emits tool calls that the browser executes through generated SpacetimeDB reducer bindings.
 
-When `Route live mic` is enabled, typed chunks route over HTTP and live mic chunks route over the gateway WebSocket. After routing, the gateway auto-calls `/work-room`, which spins up the agent swarm to drain the room's queued research tasks. Findings appear in the right rail shortly after the map updates.
-
-ACTION: Add this transcript chunk:
+ACTION: Say:
 
 ```text
 Question: will the Strait of Hormuz reopen within 72 hours? Michelle says China and India public pressure on Iran could matter. Ben asks: agent, look up recent China and India statements on Iran and whether oil markets are pricing a ceasefire.
 ```
 
-ACTION: Click `Add transcript chunk`.
+ACTION: If the room is noisy or mic permissions are unavailable, use the Host Mic debug transcript box and `Replay transcript`; this uses the same SpacetimeDB reducer writeback path for map/task state.
 
-SAY: "The first room signal is now a reducer write. Every client subscribed to this room sees the transcript, then the silent router writes the map and queues research."
+SAY: "The first room signal is now a reducer write. Every client subscribed to this room sees the transcript, then the silent realtime operator writes the map and queues research through the same reducers."
 
 JUDGE SEES: Transcript count increments, the chunk appears in the host rail, and the map starts filling from the blank room.
 
@@ -152,21 +150,20 @@ JUDGE SEES: The inspector with the node summary, its labeled edges, and any atta
 - Live multiplayer cursors and presence: pointer-move broadcasts through `updateCursor`, everyone subscribes to the `cursor` table, and a presence avatar stack shows who is here.
 - Real labeled edges: the canvas draws the `map_edge` table between actual node positions.
 - The agent swarm: Scout, Analyst, and Verifier coordinate through SpacetimeDB, writing live status to the `agent_worker` table and findings through the shared reducers.
-- Gateway HTTP triggers for transcript routing (`/replay-transcript`) and the room swarm (`/work-room`).
-- Gateway `WS /live-audio` for browser-recorded mic chunks.
-- Host Mic `Route live mic` path from transcript chunk to model-routed map/task state.
+- Gateway HTTP triggers for realtime token minting (`/realtime-token`), transcript replay/debug routing (`/replay-transcript`), explicit "Hey agent" answers (`/ask`), the room swarm (`/work-room`), and the hierarchical fleet (`/fleet`).
+- Browser WebRTC to OpenAI Realtime for live mic transcription/operator events; the gateway never proxies live audio.
+- Host Mic live path from final realtime transcript/tool calls to direct SpacetimeDB module reducer writes.
 - Research requires `EXA_API_KEY` and fails fast with a clear error if it is missing. There is no mock-research fallback.
-- Browser mic capture with MediaRecorder and WebSocket, falling back to SpeechRecognition where needed.
+- Realtime operator output is text/tool calls only; the app does not speak over the meeting.
 
 ## What Is Still Scoped For MVP
 
-- True OpenAI Realtime/WebRTC tool-call loop is not wired yet; the live route uses browser final transcript chunks plus the gateway model router.
-- Browser mic permission/audio quality still needs an in-room live test, but the gateway WebSocket audio path is verified with a real recording chunk.
+- Browser mic permission/audio quality can still vary by machine; use the debug transcript replay path only when live mic permission is unavailable.
 - The swarm roster is capped at three workers (Scout, Analyst, Verifier); a long-running daemon is not the default.
 - Private scratchpad is local/demo-level.
 - No auth beyond room code and local display name.
 
-## Failure Fallbacks
+## Failure Recovery
 
 If gateway is down:
 
@@ -208,6 +205,6 @@ Then verify in browser:
 1. Fresh room starts empty.
 2. A second window shows a live cursor and a `2 here` presence avatar.
 3. Host transcript chunk increments count.
-4. `Route live mic` plus `Add transcript chunk` fills map without reload, with real labeled edges.
+4. `Start mic` plus spoken transcript fills map without reload, with real labeled edges.
 5. The swarm strip shows workers claiming, researching, and writing; a finding appears.
 6. Participant note appears on shared display.

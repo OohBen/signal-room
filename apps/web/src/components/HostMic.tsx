@@ -110,7 +110,7 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
   // ── Realtime mic: browser ↔ OpenAI over WebRTC ──────────────────────────────
   // The gateway only mints an ephemeral token; audio never passes through it.
   // Each finalized transcript is written to the shared transcript log and routed
-  // to the map through the existing /replay-transcript router.
+  // to the map through direct SpacetimeDB reducer calls emitted by the operator.
 
   async function startListening() {
     if (voiceStarting || listening) return;
@@ -429,7 +429,6 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
           roomCode: state.roomCode,
           database: SPACETIME_DATABASE,
           maxTasks: 1,
-          forceMock: false,
         }),
       });
       const payload = (await response.json()) as {

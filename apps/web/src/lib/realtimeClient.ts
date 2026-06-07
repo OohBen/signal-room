@@ -9,7 +9,7 @@ import { GATEWAY_URL } from "../config";
 //   1. background transcription (gpt-4o-mini-transcribe) → interim/final text
 //   2. the per-turn "operator": the caller sends a response.create with the
 //      room snapshot + tools; gpt-realtime-2 emits function_call events which
-//      the caller executes (relays to the gateway).
+//      the caller executes through SpacetimeDB reducer calls.
 
 const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 
@@ -113,10 +113,15 @@ export async function startRealtimeTranscription(
   const pc = new RTCPeerConnection();
   let stopped = false;
   let utterance = "";
+  let disconnectedTimer: number | undefined;
 
   const cleanup = () => {
     if (stopped) return;
     stopped = true;
+    if (disconnectedTimer !== undefined) {
+      window.clearTimeout(disconnectedTimer);
+      disconnectedTimer = undefined;
+    }
     try {
       pc.getSenders().forEach((sender) => sender.track?.stop());
     } catch {
@@ -220,12 +225,22 @@ export async function startRealtimeTranscription(
   pc.onconnectionstatechange = () => {
     if (stopped) return;
     if (pc.connectionState === "connected") {
+      if (disconnectedTimer !== undefined) {
+        window.clearTimeout(disconnectedTimer);
+        disconnectedTimer = undefined;
+      }
       handlers.onStatus?.("Listening live");
-    } else if (
-      pc.connectionState === "failed" ||
-      pc.connectionState === "disconnected" ||
-      pc.connectionState === "closed"
-    ) {
+    } else if (pc.connectionState === "disconnected") {
+      handlers.onStatus?.("Realtime connection recovering");
+      if (disconnectedTimer === undefined) {
+        disconnectedTimer = window.setTimeout(() => {
+          disconnectedTimer = undefined;
+          if (stopped || pc.connectionState !== "disconnected") return;
+          cleanup();
+          handlers.onClosed?.();
+        }, 8000);
+      }
+    } else if (pc.connectionState === "failed" || pc.connectionState === "closed") {
       cleanup();
       handlers.onClosed?.();
     }

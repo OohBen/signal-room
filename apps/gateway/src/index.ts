@@ -6,7 +6,6 @@ import { createExaResearchClient } from "./clients/exa.js";
 import { getGatewayRuntimeEnv, loadAiEnv } from "./config/env.js";
 import { buildHealthPayload, startHealthServer } from "./http/health.js";
 import { createOpenAiRealtimeRouter } from "./realtime/router.js";
-import { handleRealtimeRoomTool } from "./realtime/realtimeRoomTools.js";
 import { mintRealtimeToken } from "./realtime/realtimeToken.js";
 import { createTranscriptRouter } from "./realtime/transcriptRouter.js";
 import { replayTranscript } from "./spacetime/replayTranscript.js";
@@ -99,12 +98,6 @@ async function main(): Promise<void> {
         });
       },
       realtimeToken: async () => mintRealtimeToken(),
-      realtimeTool: async (request) =>
-        handleRealtimeRoomTool(
-          { database: request.database ?? options.database, roomCode: request.roomCode },
-          request.name,
-          request.arguments
-        ),
     });
     return;
   }
@@ -437,7 +430,7 @@ Options:
   --display-name <n> Display name used for room creation.
   --delay-ms <ms>    Delay between replay steps. Defaults to 1200.
   --file <path>      Transcript file for replay-transcript.
-  --router-model <m> OpenRouter model for transcript routing. Defaults to inception/mercury-2.
+  --router-model <m> OpenRouter model for transcript routing. Defaults to openai/gpt-5.4-mini.
   --max-tasks <n>    Maximum tasks for work-batch or /work-room. Defaults to 1, max 10.
   --transcript <txt> Inline transcript text for replay-transcript.
   --task <id>        Optional numeric SpacetimeDB task id to complete during --write-back.

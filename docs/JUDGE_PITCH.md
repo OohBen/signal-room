@@ -32,9 +32,9 @@ The agent gateway holds secrets and calls OpenAI or Exa, but it does not become 
 
 1. Open a fresh room URL such as `http://127.0.0.1:5173/?room=LIVE-HACK`. Show that it starts empty.
 2. Open the same room in a second window and move the mouse. The other window sees the live cursor move on the shared map and a `2 here` presence avatar appears. This is the instant multi-client sync moment.
-3. In the `Host Mic` tab, enable `Route live mic`.
-4. Add a manual transcript chunk or use browser speech capture.
-5. Watch transcript chunks, model-routed map nodes with real labeled edges, question candidates, and agent tasks appear across subscribed browsers without reload.
+3. In the `Host Mic` tab, click `Start mic`.
+4. Speak normally; the browser opens OpenAI Realtime over WebRTC using a short-lived token from the gateway.
+5. Watch transcript chunks, realtime operator map nodes with real labeled edges, question candidates, and agent tasks appear across subscribed browsers without reload.
 6. Watch the agent swarm: Scout, Analyst, and Verifier claim, research, and write live in the swarm strip; the researched node pulses `Agent on it`; a finding lands in the side rail.
 7. Add a participant note with `Add to shared map`; it round-trips through SpacetimeDB and appears on the room display.
 8. Click a node to focus the inspector and see its real edges and attached findings.
@@ -48,18 +48,18 @@ The agent gateway holds secrets and calls OpenAI or Exa, but it does not become 
 - Live multiplayer cursors and presence: pointer-move broadcasts through `updateCursor`, the `cursor` table syncs to all clients, and a presence avatar stack shows who is here.
 - Real labeled edges drawn from the `map_edge` table between actual node positions.
 - The agent swarm: Scout, Analyst, and Verifier coordinate through SpacetimeDB, claiming tasks atomically, publishing live status to the `agent_worker` table, and writing findings through the shared reducers.
-- Host Mic manual transcript chunks write into SpacetimeDB.
-- Host Mic `Route live mic` sends cumulative transcript context to the silent model router.
-- Local gateway `POST /replay-transcript` routes transcript into SpacetimeDB map nodes, questions, and tasks.
-- Local gateway `POST /work-room` runs the swarm over room-scoped queued tasks and writes findings.
+- Host Mic realtime transcripts write into SpacetimeDB.
+- Gateway `POST /realtime-token` mints the ephemeral OpenAI Realtime client secret; live audio goes browser -> OpenAI, not through the gateway.
+- Realtime operator tool calls execute through generated SpacetimeDB reducer bindings in the browser.
+- Gateway `POST /replay-transcript` remains available for manual/debug transcript replay.
+- Gateway `POST /ask` answers explicit "Hey agent" questions quickly; `POST /work-room` runs the swarm over room-scoped queued tasks and writes findings.
 - Exa research is required (`EXA_API_KEY`) and fails fast if missing; it has returned real source links. There is no mock-research fallback.
-- Desktop, mobile-width, and fresh-room browser QA have passed.
+- Fresh-room browser QA has passed.
 
 ## What Is Scoped For MVP
 
-- The true WebRTC/OpenAI realtime mic session is still in progress; the current live route uses browser final transcript chunks plus the gateway model router.
 - The swarm roster is capped at three workers (Scout, Analyst, Verifier); a long-running daemon is not the default.
-- There is no real auth, no diarization, no AI voice output, and the private scratchpad may be partially mocked.
+- There is no real auth, no diarization, and no AI voice output.
 
 ## Close
 

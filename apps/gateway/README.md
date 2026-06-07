@@ -11,11 +11,11 @@ Small Node/TypeScript side-effect process for Signal Room agent work.
 
 The gateway loads `~/.ai.env` if present. It reports only variable names and presence booleans, never secret values.
 
-`research` uses Exa when `EXA_API_KEY` is present:
+`research` uses the official Exa SDK and requires `EXA_API_KEY`:
 
 ```sh
 pnpm --dir apps/gateway build
 node apps/gateway/dist/index.js research --query "SpacetimeDB realtime collaboration research"
 ```
 
-Without `EXA_API_KEY`, or with `--mock`, the Exa wrapper returns a deterministic mock source.
+Without `EXA_API_KEY`, research fails fast. There is no mock research path.

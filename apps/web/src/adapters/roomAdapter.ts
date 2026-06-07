@@ -74,7 +74,7 @@ function createGuestDisplayName(): string {
 
 function normalizeDisplayName(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
-  if (!trimmed || trimmed === "You") return undefined;
+  if (!trimmed || trimmed.toLowerCase() === "you") return undefined;
   return trimmed;
 }
 
@@ -269,7 +269,7 @@ export function useRoomState(): SignalRoomSnapshot {
   }, [live]);
 
   const setDisplayName = useCallback((displayName: string) => {
-    const normalized = displayName.trim() || createGuestDisplayName();
+    const normalized = normalizeDisplayName(displayName) ?? createGuestDisplayName();
     setState((current) => ({ ...current, displayName: normalized }));
     void live.upsertParticipant(normalized, "online", focusNodeId).catch((error: unknown) => {
       console.error("Unable to sync participant", error);

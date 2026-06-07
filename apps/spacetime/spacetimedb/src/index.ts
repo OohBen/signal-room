@@ -1101,11 +1101,10 @@ export const setNodeAgent = spacetimedb.reducer(
 // ---------------------------------------------------------------------------
 // Realtime operator reducers
 //
-// Faithful in-module port of gateway/src/realtime/realtimeRoomTools.ts so the
-// browser can call the operator logic directly instead of shelling out to the
-// `spacetime` CLI. All helpers below are pure string operations (deterministic),
-// dedup is done via in-module table reads, and inserts return the row carrying
-// the autoInc id used to chain edges.
+// Browser-executed realtime operator tools write through these reducers directly
+// instead of shelling out through the gateway's `spacetime` CLI. All helpers below
+// are deterministic, dedup is done via in-module table reads, and inserts return
+// the row carrying the autoInc id used to chain edges.
 // ---------------------------------------------------------------------------
 
 interface RealtimeNodeRef {
@@ -1694,4 +1693,3 @@ export const realtimeCorrectNode = spacetimedb.reducer(
     });
   }
 );
-

@@ -7,12 +7,13 @@ Working vertical slice:
 1. Browser opens a fresh room URL; the room starts empty.
 2. React joins or creates the room in SpacetimeDB.
 3. A second window proves instant multi-client sync: live cursors render on the shared canvas in stage coordinates (broadcast on pointer-move through `updateCursor`), and a presence avatar stack shows who is here.
-4. Host Mic writes transcript chunks through generated SpacetimeDB bindings.
-5. Host Mic `Route live mic` calls local gateway `POST /replay-transcript`.
-6. The model-backed silent router writes map nodes, real labeled edges, passive questions, and queued research tasks through SpacetimeDB reducers.
-7. Host Mic calls `/work-room`, which runs the agent swarm (Scout, Analyst, Verifier). Workers claim queued tasks atomically, publish status to the `agent_worker` table, and write findings; the canvas shows an `Agent on it` pulse on the researched node.
-8. Room Display updates live from subscriptions, drawing the `map_edge` table between node positions.
-9. Gateway can also replay text transcripts into the same reducer path.
+4. Host Mic asks the gateway for `POST /realtime-token`, then opens an OpenAI Realtime WebRTC session directly from the browser.
+5. Each final transcript writes a transcript chunk through generated SpacetimeDB bindings.
+6. The realtime operator emits tool calls; the browser executes them by calling module reducers directly (`realtimeMapSignal`, `realtimePassiveQuestion`, `realtimeQuickAgent`, `realtimeCorrectNode`) over its live SpacetimeDB connection.
+7. Explicit "Hey agent" questions use `POST /ask` for the fast Exa answer path; findings are written back through SpacetimeDB.
+8. `/work-room` runs the agent swarm (Scout, Analyst, Verifier). Workers claim queued tasks atomically, publish status to the `agent_worker` table, and write findings; the canvas shows an `Agent on it` pulse on the researched node.
+9. Room Display updates live from subscriptions, drawing the `map_edge` table between node positions.
+10. Gateway can also replay text transcripts through `POST /replay-transcript` for manual/debug input.
 
 Verified commands:
 
@@ -36,17 +37,20 @@ Fresh room started empty, then model-routed transcript replay filled the map wit
 Frontend:
 
 - `apps/web/src/App.tsx`: tab routing.
-- `apps/web/src/components/HostMic.tsx`: manual transcript, browser speech capture, live routing toggle, gateway trigger.
+- `apps/web/src/lib/realtimeClient.ts`: OpenAI Realtime WebRTC client, transcript/tool-call events, and data-channel operator requests.
+- `apps/web/src/components/HostMic.tsx`: mic orchestration, final transcript handling, "Hey agent" fast lane, and realtime operator execution.
 - `apps/web/src/components/RoomDisplay.tsx`: main room surface, including the canvas header presence stack and the agent swarm strip.
 - `apps/web/src/components/RoomMap.tsx`: canvas rendering, live cursors in stage coordinates, real `map_edge` rendering, `Agent on it` pulse, and node interactions.
 - `apps/web/src/adapters/roomAdapter.ts`: app-state bridge (no local-state mirror fallbacks).
-- `apps/web/src/adapters/spacetimeAdapter.ts`: generated binding subscriptions and reducer calls, including `updateCursor`.
+- `apps/web/src/adapters/spacetimeAdapter.ts`: generated binding subscriptions and reducer calls, including `updateCursor` and direct realtime operator reducers.
 - `apps/web/src/config.ts`: SpacetimeDB and gateway URLs.
 
 Gateway:
 
-- `apps/gateway/src/index.ts`: CLI entrypoint (`serve`, `health`, `smoke`, `research`, `replay-transcript`, `work-once`, `work-batch`).
-- `apps/gateway/src/http/health.ts`: local HTTP API, `/replay-transcript`, `/work-room`, and `WS /live-audio`.
+- `apps/gateway/src/index.ts`: CLI entrypoint (`serve`, `health`, `smoke`, `research`, `replay-transcript`, `work-once`, `work-batch`, `fleet`).
+- `apps/gateway/src/http/health.ts`: local HTTP API, including `/health`, `/realtime-token`, `/replay-transcript`, `/ask`, `/work-room`, and `/fleet`.
+- `apps/gateway/src/realtime/realtimeToken.ts`: mints OpenAI Realtime ephemeral client secrets; audio stays browser -> OpenAI.
+- `apps/gateway/src/realtime/operatorConfig.ts`: tool schemas and operator instructions shared with the browser realtime client.
 - `apps/gateway/src/realtime/transcriptRouter.ts`: model-backed silent transcript router.
 - `apps/gateway/src/spacetime/replayTranscript.ts`: transcript-to-map reducer writer with dedupe guards.
 - `apps/gateway/src/spacetime/writeback.ts`: research result writeback.
@@ -69,33 +73,29 @@ Docs:
 
 ## Next Slice Options
 
-### Option A: Realtime Router
-
-Goal: Replace the transcript-chunk route with a true OpenAI Realtime/WebRTC tool-call session.
+### Option A: Realtime Reliability
 
 Acceptance:
 
-- Host can start a realtime mic session.
-- Router emits transcript chunks directly from the realtime session.
-- Explicit command like "agent, research the ceasefire" creates an agent task.
-- Router stays silent. No speech output.
-- Same SpacetimeDB reducers used by the current route.
+- Host mic remains connected until the user stops it.
+- Final transcript segmentation is reliable in a room.
+- Explicit command like "agent, research the ceasefire" uses `/ask` quickly.
+- Realtime operator remains silent. No speech output.
+- Same SpacetimeDB reducers remain the only shared-state write path.
 
 Current progress:
 
-- OpenAI SDK transcription catches spoken agent requests over `WS /live-audio`.
-- OpenAI SDK with OpenRouter `baseURL` handles model routing and creates map nodes, real edges, passive questions, and queued tasks.
-- Host Mic has `Route live mic`; final transcript chunks call `/replay-transcript` with cumulative context.
-- Host Mic calls `/work-room` after successful live routing so the swarm turns queued tasks into findings automatically.
-- Replay dedupes identical routed transcript chunks and avoids adding questions/tasks to pre-existing nodes.
+- Browser uses OpenAI Realtime WebRTC with `gpt-realtime-2` and `gpt-4o-mini-transcribe-2025-12-15`.
+- Gateway only mints the ephemeral token; it does not proxy mic audio.
+- Browser executes realtime operator tool calls through generated SpacetimeDB reducer bindings.
+- Replay dedupes identical routed transcript chunks and avoids adding questions/tasks to pre-existing nodes for debug/manual input.
 
 Likely files:
 
-- `apps/gateway/src/realtime/router.ts`
-- `apps/gateway/src/realtime/realtimeAudioSocket.ts`
-- `apps/gateway/src/spacetime/replayTranscript.ts`
-- `apps/gateway/src/http/health.ts`
+- `apps/web/src/lib/realtimeClient.ts`
 - `apps/web/src/components/HostMic.tsx`
+- `apps/gateway/src/realtime/realtimeToken.ts`
+- `apps/gateway/src/realtime/operatorConfig.ts`
 
 ### Option B: Task Worker (DONE)
 
@@ -185,8 +185,8 @@ For demo changes:
 1. Open fresh room.
 2. Confirm empty state.
 3. Open a second window and confirm live cursors and a `2 here` presence avatar.
-4. Enable Host Mic `Route live mic`.
-5. Add Host Mic transcript chunk.
+4. Click Host Mic `Start mic` and speak a map-worthy turn.
+5. If mic permission is unavailable, use Host Mic transcript replay as the debug path.
 6. Confirm Room Display fills without reload, with real labeled edges.
 7. Confirm the swarm strip shows workers claiming/researching/writing and a finding appears after `/work-room`.
 8. Check console warnings/errors.

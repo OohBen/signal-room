@@ -19,10 +19,6 @@
   },
   "dependencies": {
     "exa-js": "^2.13.0",
-    "openai": "^6.42.0",
-    "ws": "^8.21.0"
-  },
-  "devDependencies": {
-    "@types/ws": "^8.18.1"
+    "openai": "^6.42.0"
   }
 }

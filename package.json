@@ -7,7 +7,6 @@
     "build": "pnpm -r build",
     "check": "pnpm -r check",
     "smoke:live": "node scripts/smoke-live-demo.mjs",
-    "smoke:audio-ws": "node scripts/smoke-live-audio-ws.mjs",
     "status": "node scripts/check-project.mjs",
     "dev:web": "pnpm --dir apps/web dev",
     "dev:gateway": "pnpm --dir apps/gateway dev",

@@ -2,27 +2,35 @@
 
 ## Current Phase
 
-Sprint 1 vertical slice.
+Live hackathon demo hardening.
+
+## 2026-06-07: Realtime Architecture Cleanup
+
+- Current live mic path is browser OpenAI Realtime WebRTC (`gpt-realtime-2` plus `gpt-4o-mini-transcribe-2025-12-15`). The gateway only mints an ephemeral client secret through `POST /realtime-token`; it does not proxy room audio.
+- Browser realtime tool calls now write map state by calling generated SpacetimeDB module reducers directly (`realtimeMapSignal`, `realtimePassiveQuestion`, `realtimeQuickAgent`, `realtimeCorrectNode`).
+- Gateway HTTP surface is `GET /health`, `POST /realtime-token`, `POST /replay-transcript`, `POST /ask`, `POST /work-room`, and `POST /fleet`.
+- The earlier gateway WebSocket audio MVP and its smoke script are retired; do not rebuild on that path.
+- Fresh verification: `pnpm status`, `pnpm check`, `pnpm build`, and `pnpm smoke:live` passed. Smoke room `SMOKE-3AYN0L` created 1 transcript chunk, 5 nodes, 2 tasks, 2 completed tasks, and 2 findings.
 
 ## Done
 
-> Historical log. Some entries below describe commands/endpoints that were since removed (`live-fill`, `audio-replay`, `--mock`, `POST /process-room`, seeded `DEMO` room). The current surface is captured in the 2026-06-06 "Multiplayer + Agent Swarm" section; these older lines are kept only as a record.
+> Historical log. Some entries below describe commands/endpoints that were since removed (`live-fill`, `audio-replay`, `POST /process-room`, seeded `DEMO` room). The current surface is captured in the 2026-06-07 "Realtime Architecture Cleanup" section; these older lines are kept only as a record.
 
-- Static mock created under `mocks/research-room/`.
+- Static visual prototype created.
 - Grilling complete enough to start.
 - `PLAN.md`, `SPECS.md`, and `TASKS.md` created.
 - Root pnpm workspace created.
 - SpacetimeDB TypeScript scaffold created under `apps/spacetime/`.
 - Baseline `pnpm install` passes.
 - SpacetimeDB MVP schema/reducer module implemented.
-- React/Vite web app shell implemented from the mock.
+- React/Vite web app shell implemented from the visual prototype.
 - Agent gateway skeleton implemented.
 - `pnpm check` passes.
 - `pnpm build` passes.
 - `pnpm spacetime:build` passes.
 - `pnpm --dir apps/gateway smoke` passes.
 - Real Exa research command returned 5 source links.
-- Gateway research client now uses the official `exa-js` SDK with mock fallback for demo safety.
+- Gateway research client switched to the official `exa-js` SDK.
 - SpacetimeDB TypeScript bindings generated under `apps/web/src/module_bindings/`.
 - Web app connected to published SpacetimeDB `signal-room` database on maincloud.
 - Fresh room URLs like `/?room=LIVE-HACK` now create empty live SpacetimeDB rooms instead of auto-seeding.
@@ -34,17 +42,17 @@ Sprint 1 vertical slice.
 - Map node double-click opens the agent thread.
 - Browser QA passed on localhost desktop and mobile-width render; no fresh console errors after React dedupe fix.
 - Browser QA verified `LIVE-WATCH-22738` started empty at 0 nodes and filled live to a six-node map without reload.
-- Gateway `live-fill --mock --room-code LIVE-TASK-11896 --delay-ms 0` created and completed a SpacetimeDB agent task plus finding.
-- Browser QA verified `LIVEQA-2432L6` started empty, accepted a Host Mic transcript chunk, then filled the map through the Host Mic deterministic fallback trigger without reload.
+- Legacy live-fill demo command created and completed a SpacetimeDB agent task plus finding.
+- Browser QA verified `LIVEQA-2432L6` started empty, accepted a Host Mic transcript chunk, then filled the map through the old scripted demo trigger without reload.
 - Demo docs packet created under `docs/`: runbook, judge pitch, API reference, and implementation handoff.
-- Gateway `work-once --mock` claimed and completed queued SpacetimeDB task `1`.
+- Legacy `work-once` demo command claimed and completed queued SpacetimeDB task `1`.
 - Local `.env` created from needed `~/.ai.env` values and gateway now loads project `.env` before falling back to home `.ai.env`.
 - Gateway duplicate-room guard verified: processor refuses to append a second full demo map into a room with existing map nodes.
 - Host Mic now has `Replay transcript`, backed by local gateway `POST /replay-transcript`.
 - Gateway `replay-transcript` command verified with real SpacetimeDB rooms.
 - Recorded `.m4a` audio fixture replay implemented and verified with OpenAI transcription, cumulative prefixes, and SpacetimeDB reducer writes.
 - Audio fixture room `AUDIO-FULL-052413` rendered a Strait of Hormuz map with oil shock, ceasefire, third-party pressure, and explicit China-position agent task.
-- Model-backed transcript router implemented through OpenRouter with `inception/mercury-2` default and deterministic fallback.
+- Model-backed transcript router implemented through OpenRouter; current default is `openai/gpt-5.4-mini` and provider keys fail fast when missing.
 - Model-backed audio room `MODEL-FULL-053047` created a live map from the recording, then `work-once` completed a real Exa-backed ceasefire research finding.
 - Provider calls now use SDKs: `openai` for transcription, `openai` with OpenRouter `baseURL` for routing, and `exa-js` for research.
 - Host Mic `Route live mic` toggle sends final transcript/manual chunks through the model router with cumulative context.
@@ -52,13 +60,11 @@ Sprint 1 vertical slice.
 - Gateway `POST /work-room` and CLI `work-batch` process bounded queued research tasks for one room.
 - Host Mic auto-runs one queued research task after successful live routing, so routed tasks can turn into findings without terminal work.
 - `pnpm smoke:live` added as an automated live demo verifier.
-- Gateway `WS /live-audio` implemented for browser-recorded mic chunks; Host Mic now prefers MediaRecorder over the socket and falls back to SpeechRecognition.
-- `pnpm smoke:audio-ws` added as a repeatable WebSocket audio verifier using a real recording.
-- Host Mic WebSocket path now has start-guarding, chunk backpressure, safer socket-close handling, final-chunk request on stop, and visible gateway voice status.
+- Retired WebSocket audio MVP was superseded by browser OpenAI Realtime WebRTC plus direct SpacetimeDB reducer calls.
 - App copy polished away from mock/seeded language; fresh rooms now present as live rooms that build from conversation.
 - Host capture now stays mounted across screen changes and exposes a compact capture dock on the room display, so capture/routing can continue while watching the map.
 - Gateway transcript replay retries now continue missing map/topic/question/task work after partial room state exists.
-- Fresh-room local fallback is now blank/live instead of seeded demo content, preventing old NVIDIA/demo state from flashing before SpacetimeDB connects.
+- Fresh-room local preview is now blank/live instead of seeded demo content, preventing old NVIDIA/demo state from flashing before SpacetimeDB connects.
 - Host mic startup now falls back to browser speech recognition when the gateway voice socket cannot open.
 - Browser mic capture now uploads finalized short recording segments instead of MediaRecorder stream fragments, avoiding OpenAI `400 Audio file might be corrupted or unsupported` on live WebM chunks.
 - Gateway transcription now retries likely corrupt/unsupported browser audio by remuxing through `ffmpeg` to MP3 before calling OpenAI again.
@@ -67,24 +73,24 @@ Sprint 1 vertical slice.
 
 ## 2026-06-06: Multiplayer + Agent Swarm
 
-- Stripped demo scaffolding: removed the seeded `DEMO` room and `seedDemoRoom` reducer, the web `seedRoom.ts`, dead `RoomCopilot`/`AgentThread`/`TranscriptChunks` components, the `mocks/` folder, and the web adapter local-state mirror fallbacks. Removed the gateway `live-fill` CLI command, `POST /process-room` endpoint, `liveFill.ts`, the scripted deterministic fallback, the Exa->mock research fallback, and the `--mock` flag. Research now requires `EXA_API_KEY` and fails fast.
+- Stripped demo scaffolding: removed the seeded `DEMO` room and `seedDemoRoom` reducer, the web `seedRoom.ts`, dead `RoomCopilot`/`AgentThread`/`TranscriptChunks` components, the old visual prototype folder, and the web adapter local-state mirrors. Removed the gateway `live-fill` CLI command, `POST /process-room` endpoint, `liveFill.ts`, the scripted demo route, and the old local research demo path. Research now requires `EXA_API_KEY` and fails fast.
 - Added live multiplayer: new `cursor` table + `updateCursor` reducer drive cursors that render on the shared canvas in stage coordinates (broadcast on pointer-move, throttled ~55ms), plus a presence avatar stack (`N here`) in the canvas header.
 - Canvas now draws real `map_edge` relationships with labels between node positions instead of faked hub-and-spoke edges.
 - Added a visible agent swarm: new `agent_worker` table + `upsertAgentWorker` reducer; `apps/gateway/src/tasks/swarm.ts` `runRoomSwarm` runs up to 3 concurrent named workers (Scout, Analyst, Verifier) that drain the room's queued tasks, write live status to `agent_worker`, and write findings. Wired into `POST /work-room` (optional `workerCount` 1..6, capped at 3), auto-triggered by Host Mic. The always-on background worker loop was removed from `serve`. A swarm strip shows live worker status and nodes pulse `Agent on it` while being researched.
 - SpacetimeDB module republished to maincloud database `signal-room` (now 20 reducers, including `updateCursor` and `upsertAgentWorker`). All of the above verified live against maincloud on 2026-06-06.
-- Gateway CLI surface is now `serve`, `health`, `smoke`, `research`, `replay-transcript`, `work-once`, `work-batch`. HTTP surface is `GET /health`, `POST /replay-transcript`, `POST /work-room`, `WS /live-audio`.
+- Gateway CLI surface is now `serve`, `health`, `smoke`, `research`, `replay-transcript`, `work-once`, `work-batch`, `fleet`. Current HTTP surface is listed in the 2026-06-07 section above.
 
 ## In Progress
 
-- Browser mic permission and in-room audio QA.
-- True OpenAI Realtime/WebRTC tool-call session, if time permits.
+- Browser mic persistence and in-room audio QA.
+- Canvas cleanup/layout tuning.
 - Long-running gateway worker service that claims arbitrary SpacetimeDB agent tasks.
 - Final demo polish and script.
 
 ## Next Integration Steps
 
-1. Verify the Host Mic WebSocket path from the actual browser permission prompt in a fresh room.
-2. Replace the WebSocket transcription MVP with a true OpenAI Realtime/WebRTC tool-call session if time permits.
+1. Verify Host Mic stays connected through a long fresh-room session unless the user stops it.
+2. Tune the auto-clean layout so related branches have readable spacing without destroying manual positions.
 3. Turn the bounded `/work-room` worker into a long-running task claimer.
 4. Run a true two-browser sync smoke with separate local names.
 5. Write the final hackathon demo script.
@@ -95,16 +101,14 @@ Sprint 1 vertical slice.
 
 ## Latest Verification
 
-> Historical log. Some entries below reference commands and endpoints that were since removed (`live-fill`, `audio-replay`, `--mock`, `POST /process-room`, the scripted fallback). See the 2026-06-06 "Multiplayer + Agent Swarm" section above for the current surface; these older lines are kept only as a record of past verification.
+> Historical log. Some entries below reference commands and endpoints that were since removed (`live-fill`, `audio-replay`, `POST /process-room`, the scripted demo route). See the 2026-06-07 "Realtime Architecture Cleanup" section above for the current surface; these older lines are kept only as a record of past verification.
 
 - `pnpm check`
 - `pnpm build`
 - `pnpm spacetime:build`
 - `pnpm status`
 - `spacetime publish signal-room --module-path apps/spacetime/spacetimedb --yes`
-- `node --enable-source-maps apps/gateway/dist/index.js live-fill --mock --room-code LIVE-WATCH-22738 --display-name Ben --delay-ms 700`
-- `node --enable-source-maps apps/gateway/dist/index.js live-fill --mock --room-code LIVE-TASK-11896 --display-name Ben --delay-ms 0`
-- `node --enable-source-maps apps/gateway/dist/index.js work-once --mock`
+- Legacy live-fill and one-pass worker demo commands verified early SpacetimeDB writeback.
 - `node --enable-source-maps apps/gateway/dist/index.js smoke` verified the official Exa SDK path with `provider: exa`.
 - `curl http://127.0.0.1:8787/health` verified local `.env` loading.
 - `POST /process-room` against filled `LIVEQA-24KNTK` returned clear duplicate-room error.
@@ -124,18 +128,14 @@ Sprint 1 vertical slice.
 - `pnpm smoke:live` created `SMOKE-27MA51` and verified transcript chunks, map nodes, tasks, one completed task, and one finding.
 - `pnpm smoke:live` created `SMOKE-27WKJ2` after gateway retry recovery changes and verified transcript chunks, 4 map nodes, 4 tasks, one completed task, and one finding.
 - `pnpm smoke:live -- --room-code DASH-VERIFY` verified smoke scripts accept the common double-dash argument form.
-- `pnpm smoke:audio-ws` created `WSAUDIO-2891LT` after the browser-audio corruption fix and verified OpenAI transcription plus SpacetimeDB transcript/map rows.
-- WebSocket handshake to `ws://127.0.0.1:8787/live-audio` returned `{ ok: true, type: "ready", audioImplemented: true }`.
-- WebSocket audio smoke with an 18-second prefix of `Fashion Institute of Technology 3.m4a` created room `WSAUDIO-061029`, transcribed the chunk with `gpt-4o-transcribe`, and wrote transcript/root node state to SpacetimeDB.
-- `pnpm smoke:audio-ws` created `WSAUDIO-27G9X9`, transcribed the recording prefix with `gpt-4o-transcribe`, and independently verified 1 transcript chunk and 1 map node in SpacetimeDB.
 - Browser render check opened `WSUI-0611`, clicked Host Mic, and verified `Route live mic`, `Start mic`, `Replay transcript`, and `Live Transcript` controls render.
-- Browser render check opened `WSUI-0620`, verified the header says `Live human-agent research room`, Host Mic shows `Gateway voice`, `Start mic`, `Replay transcript`, and `Scripted fallback`, and no console warnings/errors were present.
+- Browser render check opened `WSUI-0620`, verified the old Host Mic controls rendered and no console warnings/errors were present.
 - Browser render check opened `REAL-27XC0X`, verified the Room Display capture dock shows `Routing live`, the state persists into Host Mic and back, the empty Participant Laptop no longer shows old NVIDIA content, and no console warnings/errors were present.
 - Browser render check opened `BLANK-281BOS`, verified first paint is blank/live with no old demo terms, then watched gateway replay update the already-open room to 4 synced nodes/tasks without reload.
 - Browser render check opened `AUDIOFIX-289N28`, verified Host Mic controls render after the finalized-segment/remux fix, and no console warnings/errors were present.
 - Browser render check opened `ROUTE-28DXU5`, clicked `Add transcript chunk`, and verified routing default-on created 4 map nodes without huge transcript timestamps.
 - Browser render check opened user room `LIVE-28B60Z` and verified 5 map nodes, 4 synced tasks, and no huge transcript timestamps.
 - Browser visual smoke opened `SMOKE-26H27J` and verified the room display showed the live room code, three map nodes, one synced task, and an Important finding.
-- Host Mic browser flow on `LIVEQA-2432L6`: add manual transcript chunk, click deterministic fallback, verify Room Display fills without reload.
+- Host Mic browser flow on `LIVEQA-2432L6`: add manual transcript chunk, run the old scripted demo route, verify Room Display fills without reload.
 - Browser localhost smoke: live room displayed, shared note round-tripped through SpacetimeDB, map node opened agent thread, desktop/mobile layouts rendered without fresh console errors.
 - Browser live-fill smoke: empty room displayed first, then the map filled live without reload.
