@@ -662,11 +662,11 @@ main {
   width: 258px;
   transform: translate(-50%, -50%);
   text-align: left;
-  border: 1px solid rgba(35, 51, 77, 0.1);
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 14px 30px -25px rgba(18, 27, 43, 0.48);
+  background: color-mix(in srgb, var(--panel-solid) 94%, transparent);
+  box-shadow: var(--shadow-sm);
   transition:
     transform 0.16s ease,
     border-color 0.16s ease,
@@ -695,7 +695,7 @@ main {
   padding: 17px;
   border-color: var(--ring);
   background:
-    linear-gradient(180deg, rgba(38, 104, 232, 0.12), transparent 82%),
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 82%),
     var(--panel-solid);
 }
 
