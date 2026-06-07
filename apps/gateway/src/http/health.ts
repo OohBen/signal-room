@@ -30,6 +30,7 @@ export interface HealthServerOptions {
   workRoom?: (request: WorkRoomRequest) => Promise<unknown>;
   fleet?: (request: FleetRequest) => Promise<unknown>;
   ask?: (request: AskRequest) => Promise<unknown>;
+  realtimeToken?: () => Promise<unknown>;
 }
 
 export interface ReplayTranscriptRequest {
@@ -228,6 +229,28 @@ async function handleRequest(
         ok: false,
         error: "bad_request",
         message: error instanceof Error ? error.message : "Invalid ask request",
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && path === "/realtime-token") {
+    if (!options.realtimeToken) {
+      writeJson(response, 503, {
+        ok: false,
+        error: "realtime_token_unavailable",
+      });
+      return;
+    }
+
+    try {
+      const result = await options.realtimeToken();
+      writeJson(response, 200, { ok: true, result });
+    } catch (error: unknown) {
+      writeJson(response, 400, {
+        ok: false,
+        error: "bad_request",
+        message: error instanceof Error ? error.message : "Invalid realtime-token request",
       });
     }
     return;
