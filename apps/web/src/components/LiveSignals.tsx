@@ -1,6 +1,7 @@
 import { ArrowUpRight, ChevronRight, Network, Radio, Sparkles, X } from "lucide-react";
 import { useState } from "react";
 import { cleanInsight } from "../lib/cleanInsight";
+import { renderRich } from "../lib/renderRich";
 import type { RoomSignal } from "../types/signalRoom";
 
 export interface RootAnswer {
@@ -81,7 +82,7 @@ export function LiveSignals({
             </div>
             <ul className="takeaways-list">
               {takeawayLines.map((line, index) => (
-                <li key={index}>{line}</li>
+                <li key={index}>{renderRich(line)}</li>
               ))}
             </ul>
           </article>
@@ -97,7 +98,9 @@ export function LiveSignals({
             </div>
             <h3 className="wa-question">{rootAnswer.question}</h3>
             <p className="wa-answer">
-              {cleanInsight(rootAnswer.answer) || "Agents are researching the factors and synthesizing an answer…"}
+              {rootAnswer.answer
+                ? renderRich(cleanInsight(rootAnswer.answer))
+                : "Agents are researching the factors and synthesizing an answer…"}
             </p>
           </article>
         ) : null}
@@ -142,7 +145,7 @@ function SignalCard({ signal, onOpenNode }: { signal: RoomSignal; onOpenNode: (n
         <span className="signal-on" title={`On: ${signal.connectedNodeTitle}`}>{signal.connectedNodeTitle}</span>
       </div>
       <h3 className="signal-title">{signal.title}</h3>
-      <p className="signal-body">{visibleBody}</p>
+      <p className="signal-body">{renderRich(visibleBody)}</p>
       {body.canExpand ? (
         <button className="inline-action signal-expand" type="button" onClick={() => setExpanded((open) => !open)}>
           {expanded ? "Show less" : "Show full finding"}

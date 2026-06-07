@@ -503,6 +503,11 @@ export function HostMic({ room, isActive, onToast }: HostMicProps) {
       return;
     }
 
+    // Instant, loud feedback the moment someone asks the agent directly.
+    if (/\bhey\s+agent\b|\bagent\s*[,:]/i.test(newText)) {
+      onToast("🔎 Hey agent — looking it up, answer lands in Live signals…");
+    }
+
     routingRef.current = true;
     setRouting(true);
     try {

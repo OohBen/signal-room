@@ -10,6 +10,7 @@ import {
 } from "react";
 import type { CursorPin, MapEdge, MapNode, PresencePin } from "../types/signalRoom";
 import { cleanInsight } from "../lib/cleanInsight";
+import { renderRich } from "../lib/renderRich";
 import { Avatar } from "./Primitives";
 
 interface RoomMapProps {
@@ -470,7 +471,10 @@ function MapNodeButton({
       : ready
         ? { label: "Insight ready", tone: "ready" as const }
         : statusForNode(node);
-  const body = ready && agent ? cleanInsight(agent.insight) : cleanInsight(node.summary) || node.summary;
+  // Show the agent's insight whenever it exists — including partial text while it
+  // streams ("working") — so the card visibly fills in. Fall back to the node summary.
+  const hasInsight = Boolean(agent && agent.insight && !noAgent);
+  const body = hasInsight && agent ? cleanInsight(agent.insight) : node.summary;
 
   return (
     <button
@@ -502,7 +506,7 @@ function MapNodeButton({
         <span className={`node-status ${status.tone}`}>{status.label}</span>
       </div>
       <h3>{node.title}</h3>
-      <p className="sum">{body}</p>
+      <p className="sum">{renderRich(body)}</p>
       <div className="node-foot">
         <span className="owner-tag">{ready && agent ? `Agent · ${agent.confidence}` : node.source}</span>
         <span className={`impact ${node.impactTone}`}>{node.impact}</span>

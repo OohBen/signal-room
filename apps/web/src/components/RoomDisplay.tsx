@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { SignalRoomSnapshot } from "../adapters/roomAdapter";
 import { GATEWAY_URL } from "../config";
 import { cleanInsight } from "../lib/cleanInsight";
+import { renderRich } from "../lib/renderRich";
 import type { AgentWorker, MapNode, PresencePin, WorkspaceLayout } from "../types/signalRoom";
 import { Avatar, Chip, ChipRow } from "./Primitives";
 import { LiveSignals } from "./LiveSignals";
@@ -313,7 +314,7 @@ function InspectorPanel({
               <span className="agent-confidence">{node.agent.confidence}</span>
             </div>
             <div className="c">
-              <p className="agent-insight-text">{cleanInsight(node.agent.insight)}</p>
+              <p className="agent-insight-text">{renderRich(cleanInsight(node.agent.insight))}</p>
               {node.agent.sources.length ? (
                 <div className="signal-sources">
                   {node.agent.sources.map((source, index) =>

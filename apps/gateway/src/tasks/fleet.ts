@@ -16,6 +16,12 @@ const LEAF_CONCURRENCY = 5;
 const NON_RESEARCHABLE_PATTERN =
   /\b(private|in[- ]person|confidential|personal|our team|internally|off the record|gut feel|opinion|vote|decide together)\b/i;
 
+// Streaming throttle: emit a partial at most this often, only after this many new
+// chars, and never more than this many partials per call (to bound CLI subprocess spam).
+const STREAM_EMIT_INTERVAL_MS = 450;
+const STREAM_EMIT_MIN_CHARS = 60;
+const STREAM_MAX_PARTIAL_EMITS = 6;
+
 export type AgentKind = "root" | "branch" | "leaf" | "none";
 export type AgentState = "idle" | "working" | "ready";
 export type Confidence = "low" | "medium" | "high";
@@ -133,7 +139,18 @@ async function phaseLeafFleet(
         urgencyHint: "medium",
       });
       // Refine the raw Exa answer into a concise, citation-free insight (fast model).
-      const refined = await refineInsight(synth.client, refineModelId, node.title, output.summary, context);
+      // Stream the growing insight live so the dashboard sees it build, not pop in.
+      const refined = await refineInsight(
+        synth.client,
+        refineModelId,
+        node.title,
+        output.summary,
+        context,
+        async (partial) => {
+          node.insight = cleanInsight(partial);
+          await setNodeAgent(database, roomId, node, "leaf", "working");
+        }
+      );
       node.insight = capText(refined, INSIGHT_MAX_LENGTH);
       node.links = output.sourceLinks;
       node.confidence = output.sourceLinks.length >= 3 ? "high" : "medium";
@@ -178,7 +195,13 @@ async function phaseSynthesis(
     const highChildren = children.filter((child) => child.confidence === "high").length;
 
     try {
-      node.insight = cleanInsight(await synthesize(synth, node, childLines, context));
+      // Stream the synthesis live so the dashboard watches branch/root text build.
+      node.insight = cleanInsight(
+        await synthesize(synth, node, childLines, context, async (partial) => {
+          node.insight = cleanInsight(partial);
+          await setNodeAgent(database, roomId, node, node.kind, "working");
+        })
+      );
     } catch {
       node.insight = cleanInsight(buildDeterministicSynthesis(node, children));
     }
@@ -280,22 +303,21 @@ async function synthesize(
   synth: SynthClient,
   node: FleetNode,
   childLines: string[],
-  context: string
+  context: string,
+  onPartial: (accumulated: string) => Promise<void>
 ): Promise<string> {
-  const completion = await synth.client.chat.completions.create({
-    model: synth.model,
-    temperature: 0.2,
-    max_tokens: 280,
-    messages: [
-      { role: "system", content: buildSynthSystemPrompt(node.kind === "root") },
-      { role: "user", content: buildSynthUserPrompt(node, childLines, context) },
-    ],
-  });
+  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    { role: "system", content: buildSynthSystemPrompt(node.kind === "root") },
+    { role: "user", content: buildSynthUserPrompt(node, childLines, context) },
+  ];
 
-  const content = completion.choices[0]?.message?.content;
-  if (typeof content !== "string" || !content.trim()) {
-    throw new Error("OpenRouter synthesis returned no content");
-  }
+  const content = await streamCompletion(
+    synth.client,
+    synth.model,
+    messages,
+    { temperature: 0.2, max_tokens: 280 },
+    onPartial
+  );
   return capText(content.trim().replace(/\s+/g, " "), INSIGHT_MAX_LENGTH);
 }
 
@@ -368,6 +390,72 @@ function refineModel(): string {
   return getSecret("SIGNAL_ROOM_REFINE_MODEL") ?? DEFAULT_REFINE_MODEL;
 }
 
+interface StreamOpts {
+  temperature: number;
+  max_tokens: number;
+}
+
+// Stream a chat completion, accumulating delta.content and invoking onPartial with
+// the accumulated text — throttled to at most every STREAM_EMIT_INTERVAL_MS, only
+// after STREAM_EMIT_MIN_CHARS of new text, and capped at STREAM_MAX_PARTIAL_EMITS
+// total emits (each onPartial is a CLI subprocess write, so spam must be bounded).
+// Returns the full accumulated string. Falls back to a non-streaming create on any
+// streaming error so it never breaks the caller.
+async function streamCompletion(
+  client: OpenAI,
+  model: string,
+  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+  opts: StreamOpts,
+  onPartial: (accumulated: string) => Promise<void>
+): Promise<string> {
+  try {
+    const stream = await client.chat.completions.create({
+      model,
+      temperature: opts.temperature,
+      max_tokens: opts.max_tokens,
+      messages,
+      stream: true,
+    });
+
+    let accumulated = "";
+    let lastEmitAt = 0;
+    let lastEmitLength = 0;
+    let emitCount = 0;
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (typeof delta !== "string" || delta.length === 0) continue;
+      accumulated += delta;
+
+      if (emitCount >= STREAM_MAX_PARTIAL_EMITS) continue;
+      const now = Date.now();
+      const enoughTime = now - lastEmitAt >= STREAM_EMIT_INTERVAL_MS;
+      const enoughChars = accumulated.length - lastEmitLength >= STREAM_EMIT_MIN_CHARS;
+      if (!enoughTime || !enoughChars) continue;
+
+      lastEmitAt = now;
+      lastEmitLength = accumulated.length;
+      emitCount += 1;
+      await onPartial(accumulated);
+    }
+
+    if (accumulated.trim()) return accumulated;
+    throw new Error("OpenRouter stream returned no content");
+  } catch {
+    const completion = await client.chat.completions.create({
+      model,
+      temperature: opts.temperature,
+      max_tokens: opts.max_tokens,
+      messages,
+    });
+    const content = completion.choices[0]?.message?.content;
+    if (typeof content !== "string" || !content.trim()) {
+      throw new Error("OpenRouter completion returned no content");
+    }
+    return content;
+  }
+}
+
 // Rewrite a raw web-research answer into a crisp, plain-text, citation-free insight.
 // Falls back to a cleaned version of the raw text on any error so it never blocks.
 async function refineInsight(
@@ -375,36 +463,35 @@ async function refineInsight(
   model: string,
   factorTitle: string,
   raw: string,
-  context: string
+  context: string,
+  onPartial: (accumulated: string) => Promise<void>
 ): Promise<string> {
   try {
-    const completion = await client.chat.completions.create({
-      model,
-      temperature: 0.2,
-      max_tokens: 180,
-      messages: [
-        {
-          role: "system",
-          content:
-            "Rewrite this raw web-research result into 1–3 crisp, plain-text sentences a meeting could act on. Lead with the verdict if there is one. No citation markers, no markdown, no preamble. Keep entity names exactly as given.",
-        },
-        {
-          role: "user",
-          content: [
-            `Factor: ${factorTitle}`,
-            context ? `Meeting context: ${context}` : "",
-            `Raw research result:\n${raw}`,
-          ]
-            .filter(Boolean)
-            .join("\n\n"),
-        },
-      ],
-    });
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      {
+        role: "system",
+        content:
+          "Rewrite this raw web-research result into 1–3 crisp, plain-text sentences a meeting could act on. Lead with the verdict if there is one. No citation markers, no markdown, no preamble. Keep entity names exactly as given.",
+      },
+      {
+        role: "user",
+        content: [
+          `Factor: ${factorTitle}`,
+          context ? `Meeting context: ${context}` : "",
+          `Raw research result:\n${raw}`,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      },
+    ];
 
-    const content = completion.choices[0]?.message?.content;
-    if (typeof content !== "string" || !content.trim()) {
-      throw new Error("OpenRouter refine returned no content");
-    }
+    const content = await streamCompletion(
+      client,
+      model,
+      messages,
+      { temperature: 0.2, max_tokens: 180 },
+      onPartial
+    );
     return cleanInsight(content);
   } catch {
     return cleanInsight(raw);
