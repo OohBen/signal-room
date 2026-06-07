@@ -103,6 +103,7 @@ function createBlankRoomState(roomCode: string, displayName: string): SignalRoom
     cursors: [],
     workers: [],
     signals: [],
+    takeaways: undefined,
     roomEvents: [
       {
         id: "room-ready",
@@ -170,6 +171,7 @@ function mergeLiveState(base: SignalRoomState, live: ReturnType<typeof useSpacet
     cursors: live.cursors,
     workers: live.workers,
     signals: live.signals,
+    takeaways: live.takeaways,
     roomEvents: live.roomEvents,
     queueItems: live.queueItems,
     transcript: live.transcript,

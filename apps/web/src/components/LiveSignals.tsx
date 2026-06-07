@@ -13,6 +13,7 @@ interface LiveSignalsProps {
   signals: RoomSignal[];
   activeAgents: number;
   rootAnswer?: RootAnswer;
+  takeaways?: string;
   canRunFleet: boolean;
   fleetRunning: boolean;
   onRunFleet: () => void;
@@ -31,6 +32,7 @@ export function LiveSignals({
   signals,
   activeAgents,
   rootAnswer,
+  takeaways,
   canRunFleet,
   fleetRunning,
   onRunFleet,
@@ -40,6 +42,10 @@ export function LiveSignals({
 }: LiveSignalsProps) {
   const fleetThinking = fleetRunning || rootAnswer?.state === "working";
   const fleetDisabled = fleetThinking || !canRunFleet;
+  const takeawayLines = (takeaways ?? "")
+    .split(/\n+/)
+    .map((line) => line.replace(/^[•\-*]\s*/, "").trim())
+    .filter(Boolean);
 
   return (
     <aside className="panel right live-signals">
@@ -66,6 +72,20 @@ export function LiveSignals({
       </div>
 
       <div className="panel-body">
+        {takeawayLines.length > 0 ? (
+          <article className="takeaways-card">
+            <div className="takeaways-top">
+              <Sparkles size={13} strokeWidth={2.2} />
+              <span>Meeting takeaways</span>
+            </div>
+            <ul className="takeaways-list">
+              {takeawayLines.map((line, index) => (
+                <li key={index}>{line}</li>
+              ))}
+            </ul>
+          </article>
+        ) : null}
+
         {rootAnswer ? (
           <article className={`working-answer${fleetThinking ? " thinking" : ""}`}>
             <div className="wa-top">

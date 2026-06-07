@@ -2676,6 +2676,40 @@ a.signal-source:hover {
   cursor: default;
 }
 
+.takeaways-card {
+  margin-bottom: 14px;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, var(--green) 38%, var(--line));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--green-bg) 55%, var(--panel-solid));
+  box-shadow: var(--shadow-sm);
+}
+
+.takeaways-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--green);
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.takeaways-list {
+  margin: 9px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.takeaways-list li {
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
 .working-answer {
   margin-bottom: 14px;
   padding: 14px;

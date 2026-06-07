@@ -72,6 +72,7 @@ export interface SpacetimeLiveBridge {
   cursors: CursorPin[];
   workers: AgentWorker[];
   signals: RoomSignal[];
+  takeaways: string | undefined;
   sharedNotes: SharedNote[];
   queueItems: QueueItem[];
   transcript: TranscriptUtterance[];
@@ -340,6 +341,10 @@ function mapSignal(row: DbFinding, nodeById: Map<string, DbMapNode>): RoomSignal
     connectedNodeId: row.nodeId === undefined ? undefined : nodeUiId(row.nodeId),
     connectedNodeTitle,
   };
+}
+
+function isTakeawaysFinding(row: DbFinding): boolean {
+  return row.title.trim().toLowerCase() === "meeting takeaways";
 }
 
 function signalRank(kind: RoomSignal["kind"]): number {
@@ -708,9 +713,11 @@ export function useSpacetimeLiveBridge(displayName: string, roomCode: string): S
       mapWorker(worker, nodeById)
     ),
     signals: sortNewest(roomRows.findings, (row) => row.createdAt)
+      .filter((finding) => !isTakeawaysFinding(finding))
       .map((finding) => mapSignal(finding, nodeById))
       .sort((a, b) => signalRank(a.kind) - signalRank(b.kind))
       .slice(0, 8),
+    takeaways: sortNewest(roomRows.findings, (row) => row.createdAt).find(isTakeawaysFinding)?.summary,
     sharedNotes: sortNewest(roomRows.notes, (row) => row.createdAt)
       .slice(0, 8)
       .map((note) => mapSharedNote(note, nodeById)),

@@ -130,6 +130,7 @@ function CanvasLayout({ room, onToast }: { room: SignalRoomSnapshot; onToast: (m
               signals={state.signals}
               activeAgents={activeWorkers.length}
               rootAnswer={rootAnswer}
+              takeaways={state.takeaways}
               canRunFleet={state.mapNodes.length > 0}
               fleetRunning={fleetRunning}
               onRunFleet={runFleet}

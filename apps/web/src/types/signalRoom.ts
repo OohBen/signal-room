@@ -191,6 +191,7 @@ export interface SignalRoomState {
   cursors: CursorPin[];
   workers: AgentWorker[];
   signals: RoomSignal[];
+  takeaways?: string;
   roomEvents: RoomEvent[];
   queueItems: QueueItem[];
   transcript: TranscriptUtterance[];

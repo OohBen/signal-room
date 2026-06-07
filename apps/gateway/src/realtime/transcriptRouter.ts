@@ -23,6 +23,7 @@ interface RawTranscriptRoute {
 
 interface RawRouterTopic {
   key?: unknown;
+  parentKey?: unknown;
   title?: unknown;
   summary?: unknown;
   nodeType?: unknown;
@@ -95,15 +96,17 @@ function buildSystemPrompt(): string {
     "If an idea is researchable with public/current sources, include a concise task.",
     "Tasks must use public web/current-news sources only. Do not request private records, leaked documents, diplomatic cables, or inaccessible sources.",
     "Do not invent examples, countries, dates, sources, or named institutions that are not in the transcript.",
+    "Use people's, places', and organizations' names exactly as they appear in the transcript, using the full name whenever it is given anywhere in the conversation (e.g. if someone is later called 'Victor Casado', never write just 'Victor' or a guessed surname). Never abbreviate, translate, or invent spellings.",
     "If the transcript is only a filler, acknowledgement, correction, or tiny aside, return an empty topics array. Do not create a 'brief utterance' node.",
     "If the transcript opens with a main room topic such as 'let's talk about X', 'we are trying to predict X', or 'what will X be', put that in rootTitle/rootSummary. Do not also add a side topic that merely restates X.",
     "The root is the center of the map. Topics are only meaningful branches under that center.",
     "Use specific titles like 'NVIDIA Q4 2026 outlook' or 'Oil price shock path', never vague titles like 'NVIDIA discussion', 'NVIDIA interest', 'Conversation summary', or 'Brief utterance'.",
     "If an idea is not researchable, preserve it as a summary/question and omit task.",
     "If the transcript includes a DIRECT request to the agent (e.g. 'hey agent...', 'agent, look up...', 'agent, what is...', 'agent, can you check...'), this is a participant asking a quick question. Create exactly one topic for it with nodeType 'human_question', urgency 'high', title set to the question itself (concise), and task set to the precise thing to research to answer it. Direct questions are the highest priority.",
+    "Organize topics as a hierarchy, not a flat list. Create domain parent topics (e.g. Geopolitics, Markets, Domestic politics) and nest specific subtopics under them via parentKey; nest country-level or entity-level items under their subtopic. Group related mentions under one parent instead of creating many flat siblings. Use at most ~12 topics across at most 3 levels. A parentKey must reference another topic's key in this same response, or be omitted for a top-level domain.",
     "Return only JSON with this schema:",
-    '{"rootTitle":"short topic title","rootSummary":"one sentence","topics":[{"key":"stable-slug","title":"short node title","summary":"one sentence","nodeType":"research|question|human_question|summary","source":"Router AI","urgency":"high|normal","x":500,"y":280,"edgeLabel":"short label","question":"optional passive question","task":"optional queued research task"}]}',
-    "Use at most 5 topics. Keep titles under 56 characters. Keep summaries under 180 characters.",
+    '{"rootTitle":"short topic title","rootSummary":"one sentence","topics":[{"key":"stable-slug","parentKey":"key of parent topic or omit for top-level domain","title":"short node title","summary":"one sentence","nodeType":"research|question|human_question|summary","source":"Router AI","urgency":"high|normal","x":500,"y":280,"edgeLabel":"short label","question":"optional passive question","task":"optional queued research task"}]}',
+    "Keep titles under 56 characters. Keep summaries under 180 characters.",
   ].join("\n");
 }
 
@@ -139,7 +142,7 @@ function sanitizeRoute(raw: RawTranscriptRoute, transcript: string, model: strin
     .map((topic, index) => sanitizeTopic(topic as RawRouterTopic, index, model))
     .filter((topic): topic is RouterTopic => topic !== undefined)
     .filter((topic) => !isWeakTopic(topic, rootTitle))
-    .slice(0, 5);
+    .slice(0, 12);
 
   return {
     rootTitle,
@@ -158,6 +161,7 @@ function sanitizeTopic(raw: RawRouterTopic, index: number, model: string): Route
 
   return {
     key: cleanSlug(raw.key, title),
+    parentKey: cleanParentKey(raw.parentKey),
     title,
     summary: cleanText(raw.summary, "Router marked this as relevant to the room conversation.", 220),
     nodeType,
@@ -209,6 +213,17 @@ function cleanSlug(value: unknown, fallback: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 48);
+}
+
+function cleanParentKey(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  if (!slug || slug === "root") return undefined;
+  return slug;
 }
 
 function defaultPosition(index: number): { x: number; y: number } {

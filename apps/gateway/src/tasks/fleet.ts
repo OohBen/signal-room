@@ -2,12 +2,13 @@ import OpenAI from "openai";
 
 import type { ResearchTaskRunner, SourceLink } from "./researchTaskRunner.js";
 import { getSecret } from "../config/env.js";
-import { callReducer, jsonString, parseSqlTable, querySql } from "../spacetime/cli.js";
+import { callReducer, jsonString, optionU64, parseSqlTable, querySql } from "../spacetime/cli.js";
 
 const DEFAULT_DATABASE = "signal-room";
 const DEFAULT_OPENROUTER_MODEL = "inception/mercury-2";
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
-const CONTEXT_MAX_LENGTH = 2000;
+const CONTEXT_MAX_LENGTH = 8000;
+const LEAF_QUERY_CONTEXT_MAX = 1500;
 const INSIGHT_MAX_LENGTH = 600;
 const LEAF_CONCURRENCY = 5;
 
@@ -32,6 +33,7 @@ export interface RoomFleetResult {
   leaves: number;
   noAgent: number;
   rootInsight: string;
+  summary: string;
 }
 
 interface FleetNode {
@@ -75,6 +77,7 @@ export async function runRoomFleet(options: RoomFleetOptions): Promise<RoomFleet
   await phaseInitialStates(database, roomId, list);
   await phaseLeafFleet(database, roomId, list, context, options.runner);
   await phaseSynthesis(database, roomId, nodes, rootId, context, synth);
+  const summary = await phaseSummary(database, roomId, list, rootId, context, synth);
 
   const rootNode = nodes.get(rootId.toString());
   const leafCount = list.filter((node) => node.kind === "leaf").length;
@@ -88,6 +91,7 @@ export async function runRoomFleet(options: RoomFleetOptions): Promise<RoomFleet
     leaves: leafCount,
     noAgent: noAgentCount,
     rootInsight: rootNode?.insight ?? "",
+    summary,
   };
 }
 
@@ -114,7 +118,9 @@ async function phaseLeafFleet(
   await runWithConcurrency(leaves, LEAF_CONCURRENCY, async (node) => {
     await setNodeAgent(database, roomId, node, "leaf", "working");
     try {
-      const query = context ? `${node.title}. Meeting context: ${context}` : node.title;
+      const query = context
+        ? `${node.title}. Meeting context: ${capText(context, LEAF_QUERY_CONTEXT_MAX)}`
+        : node.title;
       const output = await runner.run({
         taskId: undefined,
         roomId: roomId.toString(),
@@ -126,6 +132,11 @@ async function phaseLeafFleet(
       node.insight = capText(output.summary, INSIGHT_MAX_LENGTH);
       node.links = output.sourceLinks;
       node.confidence = output.sourceLinks.length >= 3 ? "high" : "medium";
+      // Urgent / contradictory findings flag the node red so the room glances at it.
+      if (output.urgency === "high") {
+        node.confidence = "high";
+        await flagNodeUrgent(database, node.id);
+      }
     } catch {
       node.insight = "Research failed; needs a human follow-up.";
       node.links = [];
@@ -172,6 +183,89 @@ async function phaseSynthesis(
   }
 }
 
+async function phaseSummary(
+  database: string,
+  roomId: bigint,
+  list: FleetNode[],
+  rootId: bigint,
+  context: string,
+  synth: SynthClient
+): Promise<string> {
+  const insightLines = list
+    .filter((node) => node.insight.trim().length > 0)
+    .map((node) => `${node.title}: ${node.insight}`);
+
+  let summary: string;
+  try {
+    summary = await summarizeMeeting(synth, insightLines, context);
+  } catch {
+    summary = buildDeterministicSummary(insightLines);
+  }
+
+  await callReducer(database, "add_finding", [
+    roomId.toString(),
+    optionU64(rootId),
+    optionU64(undefined),
+    jsonString("Meeting takeaways"),
+    jsonString(summary),
+    jsonString("[]"),
+    jsonString("high"),
+  ]);
+
+  return summary;
+}
+
+async function summarizeMeeting(
+  synth: SynthClient,
+  insightLines: string[],
+  context: string
+): Promise<string> {
+  const completion = await synth.client.chat.completions.create({
+    model: synth.model,
+    temperature: 0.3,
+    max_tokens: 320,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are the summary agent for a live meeting. From all the factor insights and the conversation, write 3-5 crisp bullet takeaways of what the meeting + research actually concluded — the key decisions, findings, and open questions. Use names/entities exactly as in the context.",
+      },
+      {
+        role: "user",
+        content: [
+          insightLines.length > 0
+            ? `Factor insights:\n${insightLines.join("\n")}`
+            : "No factor insights are available.",
+          context ? `Meeting context: ${context}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      },
+    ],
+  });
+
+  const content = completion.choices[0]?.message?.content;
+  if (typeof content !== "string" || !content.trim()) {
+    throw new Error("OpenRouter summary returned no content");
+  }
+  return formatBullets(content);
+}
+
+function formatBullets(content: string): string {
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `• ${line.replace(/^[•\-*\d.)\s]+/, "").trim()}`)
+    .filter((line) => line.length > 2);
+  return lines.join("\n");
+}
+
+function buildDeterministicSummary(insightLines: string[]): string {
+  const top = insightLines.slice(0, 5).map((line) => `• ${line}`);
+  return top.length > 0 ? top.join("\n") : "• No research insights were available to summarize.";
+}
+
 async function synthesize(
   synth: SynthClient,
   node: FleetNode,
@@ -196,18 +290,22 @@ async function synthesize(
 }
 
 function buildSynthSystemPrompt(isRoot: boolean): string {
+  const entityFidelity =
+    "Use people's, places', and organizations' names exactly as they appear in the meeting context, with full names whenever the transcript provides them; never abbreviate, translate, or guess spellings.";
   if (isRoot) {
     return [
       "You are the root agent of a live meeting research fleet.",
       "Synthesize the child factor insights and the meeting context into a direct, decision-useful answer to the core room question.",
       "Be 2-4 sentences. State your assessment plainly, explicitly note your confidence, and name the single biggest open uncertainty.",
       "Do not invent facts that are not supported by the child insights or context.",
+      entityFidelity,
     ].join(" ");
   }
   return [
     "You are a branch agent in a live meeting research fleet.",
     "Synthesize this factor from its child factor insights and the meeting context into 2-4 sentences of useful insight.",
     "Be specific and evidence-grounded. Do not invent facts beyond the child insights or context.",
+    entityFidelity,
   ].join(" ");
 }
 
@@ -266,6 +364,21 @@ async function setNodeAgent(
     jsonString(node.insight),
     jsonString(JSON.stringify(node.links)),
     jsonString(node.confidence),
+  ]);
+}
+
+// Raise a node's map-level urgency to "high" so the UI shows its red alert state.
+async function flagNodeUrgent(database: string, nodeId: bigint): Promise<void> {
+  // update_map_node(nodeId, title?, summary?, nodeType?, source?, urgency?, x?, y?)
+  await callReducer(database, "update_map_node", [
+    nodeId.toString(),
+    '{"none":{}}',
+    '{"none":{}}',
+    '{"none":{}}',
+    '{"none":{}}',
+    '{"some":"high"}',
+    '{"none":{}}',
+    '{"none":{}}',
   ]);
 }
 
@@ -374,16 +487,34 @@ async function loadEdges(database: string, roomId: bigint): Promise<{ from: bigi
 }
 
 async function loadConversationContext(database: string, roomId: bigint): Promise<string> {
-  const rows = parseSqlTable(
+  const transcriptRows = parseSqlTable(
     await querySql(database, "SELECT room_id, text FROM transcript_chunk")
   );
-  const text = rows
+  const transcript = transcriptRows
     .filter((row) => row.length >= 2 && row[0] === roomId.toString())
     .map((row) => row[1])
     .join(" ")
     .replace(/\s+/g, " ")
     .trim();
-  return capText(text, CONTEXT_MAX_LENGTH);
+
+  // Participant names give agents the entities (e.g. full names) the conversation assumes.
+  const participantRows = parseSqlTable(
+    await querySql(database, "SELECT room_id, display_name FROM participant")
+  );
+  const participants = Array.from(
+    new Set(
+      participantRows
+        .filter((row) => row.length >= 2 && row[0] === roomId.toString())
+        .map((row) => row[1].trim())
+        .filter(Boolean)
+    )
+  );
+
+  const parts = [
+    participants.length > 0 ? `People in the room: ${participants.join(", ")}.` : "",
+    transcript ? `Full conversation so far: ${transcript}` : "",
+  ].filter(Boolean);
+  return capText(parts.join("\n\n"), CONTEXT_MAX_LENGTH);
 }
 
 async function resolveRoomId(database: string, roomCode: string): Promise<bigint> {

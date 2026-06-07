@@ -32,6 +32,7 @@ interface NodeRef {
 
 export interface RouterTopic {
   key: string;
+  parentKey?: string;
   title: string;
   summary: string;
   nodeType: string;
@@ -126,6 +127,9 @@ export async function replayTranscript(options: ReplayTranscriptOptions): Promis
 
   const topics = route.topics.length > 0 ? route.topics : inferTopics(options.transcript);
   const currentNodes = await listNodes(database, roomId);
+
+  // First create/find ALL topic nodes so parents exist before any edge is drawn.
+  const topicNodes = new Map<string, NodeRef>();
   for (const topic of topics) {
     const existing = findExistingNode(currentNodes, topic.title);
     const node =
@@ -146,7 +150,19 @@ export async function replayTranscript(options: ReplayTranscriptOptions): Promis
       await wait(options.delayMs);
     }
 
-    await createEdge(database, roomId, root, node, topic.edgeLabel);
+    topicNodes.set(topic.key, node);
+  }
+
+  // Then wire edges: nest under a parent topic when parentKey resolves, else under root.
+  for (const topic of topics) {
+    const node = topicNodes.get(topic.key);
+    if (!node) continue;
+
+    const parentTopic =
+      topic.parentKey && topic.parentKey !== topic.key ? topicNodes.get(topic.parentKey) : undefined;
+    const parent = parentTopic && parentTopic.id !== node.id ? parentTopic : root;
+
+    await createEdge(database, roomId, parent, node, topic.edgeLabel);
 
     if (topic.question) {
       const exists = await questionExists(database, roomId, topic.question);
