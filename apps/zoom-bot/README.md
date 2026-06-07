@@ -41,6 +41,7 @@ Optional:
 | `BRIDGE_TRANSCRIPTION_MODEL` | `gpt-4o-mini-transcribe-2025-12-15` |
 | `BRIDGE_PCM_PATH` | `../out/mixed.pcm` |
 | `BRIDGE_POLL_MS` | `100` |
+| `ZOOM_AUDIO_START_TIMEOUT_SEC` | `240` |
 | `ZOOM_BOT_PLATFORM` | `linux/amd64`; use `linux/arm64` only with the matching Linux-arm64 SDK |
 | `ZOOM_SDK_DIR` | local default `./lib/zoomsdk`; cloud should use a server-side directory such as `/data/signal-room/zoom-sdk` |
 

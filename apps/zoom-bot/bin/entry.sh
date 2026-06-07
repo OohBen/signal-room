@@ -44,6 +44,25 @@ setup-spacetime-auth() {
   }
 }
 
+wait_for_pcm() {
+  local path="$1"
+  local zoom_pid="$2"
+  local timeout_sec="${ZOOM_AUDIO_START_TIMEOUT_SEC:-240}"
+  local deadline=$((SECONDS + timeout_sec))
+
+  while (( SECONDS < deadline )); do
+    if [[ -s "$path" ]]; then
+      return 0
+    fi
+    if ! kill -0 "$zoom_pid" 2>/dev/null; then
+      return 1
+    fi
+    sleep 2
+  done
+
+  return 1
+}
+
 stage-zoom-sdk() {
   local source_dir="${ZOOM_SDK_MOUNT_DIR:-lib/zoomsdk}"
   if [[ ! -f "$source_dir/libmeetingsdk.so" || ! -d "$source_dir/h" ]]; then
@@ -97,13 +116,6 @@ run() {
   # Make sure stale socket state from the upstream sample cannot interfere.
   rm -f /tmp/meeting.sock
 
-  # Start the Node bridge first so it can wait on out/mixed.pcm.
-  ( cd client && node src/index.js ) &
-  BRIDGE_PID=$!
-
-  # Trap so we kill the bridge when the bot exits.
-  trap 'kill $BRIDGE_PID 2>/dev/null || true' EXIT
-
   # C++ bot — RawAudio (no --transcribe) writes mixed PCM to out/mixed.pcm.
   # The Node bridge tails this file and streams it to OpenAI Realtime. We avoid
   # --transcribe because it triggers a post-authorize segfault in the SDK
@@ -111,7 +123,22 @@ run() {
   mkdir -p out
   # Truncate any previous capture so the bridge's offset starts at zero.
   : > out/mixed.pcm
-  ./"$BUILD"/zoomsdk RawAudio -f mixed.pcm -d out
+  ./"$BUILD"/zoomsdk RawAudio -f mixed.pcm -d out &
+  ZOOM_PID=$!
+
+  trap 'kill ${BRIDGE_PID:-} ${ZOOM_PID:-} 2>/dev/null || true' EXIT
+
+  if ! wait_for_pcm out/mixed.pcm "$ZOOM_PID"; then
+    echo "fatal: Zoom did not produce audio before startup timeout"
+    kill "$ZOOM_PID" 2>/dev/null || true
+    wait "$ZOOM_PID" 2>/dev/null || true
+    return 1
+  fi
+
+  ( cd client && node src/index.js ) &
+  BRIDGE_PID=$!
+
+  wait -n "$ZOOM_PID" "$BRIDGE_PID"
 }
 
 build && run
